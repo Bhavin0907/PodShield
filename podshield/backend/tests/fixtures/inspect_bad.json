@@ -1,0 +1,25 @@
+{
+  "Id": "3f1c9a7b2d4e5f60718293a4b5c6d7e8f9012345678901234567890abcdef0123",
+  "RepoTags": ["localhost/demo-bad:latest"],
+  "RepoDigests": [],
+  "Created": "2023-01-15T10:20:30.123456789Z",
+  "Size": 412345678,
+  "Architecture": "amd64",
+  "Os": "linux",
+  "Config": {
+    "User": "",
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PWD=/",
+      "DB_PASSWORD=hunter2-super-secret",
+      "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE",
+      "APP_ENV=production",
+      "API_TOKEN_FILE=/run/secrets/api_token"
+    ],
+    "Entrypoint": null,
+    "Cmd": ["/bin/sh", "-c", "python app.py"],
+    "ExposedPorts": {"22/tcp": {}, "8080/tcp": {}},
+    "Labels": null
+  },
+  "RootFS": {"Type": "layers", "Layers": ["sha256:aaa", "sha256:bbb", "sha256:ccc"]}
+}

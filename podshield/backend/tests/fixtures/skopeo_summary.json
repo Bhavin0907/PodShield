@@ -1,0 +1,14 @@
+{
+  "Name": "docker.io/library/nginx",
+  "Digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "RepoTags": [],
+  "Created": "2022-01-01T00:00:00Z",
+  "Architecture": "amd64",
+  "Os": "linux",
+  "Layers": ["sha256:l1", "sha256:l2"],
+  "LayersData": [
+    {"MIMEType": "application/vnd.oci.image.layer.v1.tar+gzip", "Digest": "sha256:l1", "Size": 30000000},
+    {"MIMEType": "application/vnd.oci.image.layer.v1.tar+gzip", "Digest": "sha256:l2", "Size": 2000000}
+  ],
+  "Env": ["PATH=/usr/bin"]
+}

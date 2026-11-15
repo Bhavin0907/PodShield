@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly PodShield scan of all local images
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+# Spread the load when several hosts share a schedule.
+RandomizedDelaySec=15min
+# If the machine was off at 02:30, scan shortly after it boots.
+Persistent=true
+Unit=podshield-scan.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,46 @@
+# DEMO ONLY - the same little web server, built to pass PodShield's hygiene rules.
+#
+#   podman build --format docker -t localhost/demo-good:1.0.0 -f demo/Containerfile.good demo/
+#   podshield scan localhost/demo-good:1.0.0 -v
+#
+# `--format docker` matters: the default OCI format silently drops HEALTHCHECK (PS-011).
+#
+# What it does right, and the rule it satisfies:
+#   - Red Hat UBI base, pinned to a minor version tag (PS-006, PS-002)
+#   - runs as an unprivileged numeric user (PS-001)
+#   - no credentials in ENV, none copied into layers (PS-003, PS-004)
+#   - package cache cleaned in the same layer that created it (PS-009)
+#   - HEALTHCHECK and OCI labels (PS-011, PS-012)
+#   - only the application port is exposed (PS-013)
+#
+# What you will still see:
+#   - PS-014 (MEDIUM): signature verification is host policy, not an image property. It goes
+#     away once /etc/containers/policy.json requires signatures for the registry (see the
+#     remediation text), which costs only 4 points (grade A).
+#   - PS-015 (INFO): ubi-minimal still has a shell and microdnf. Use a multi-stage build onto
+#     ubi-micro to get rid of that finding too.
+
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.4
+
+LABEL org.opencontainers.image.authors="platform-team@example.com" \
+      org.opencontainers.image.version="1.0.0" \
+      org.opencontainers.image.source="https://git.example.com/platform/demo-good" \
+      org.opencontainers.image.base.name="registry.access.redhat.com/ubi9/ubi-minimal:9.4"
+
+# Install, then clean in the same RUN so the cache never lands in a layer.
+RUN microdnf install -y --nodocs --setopt=install_weak_deps=0 python3 \
+    && microdnf clean all \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+RUN mkdir -p /app && echo "hello from demo-good" > /app/index.html \
+    && chown -R 1001:0 /app && chmod -R g=u /app
+
+# Numeric, non-root user (OpenShift-style: group 0 so arbitrary UIDs still work).
+USER 1001
+WORKDIR /app
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python3 -c "import urllib.request,sys; urllib.request.urlopen('http://127.0.0.1:8080/', timeout=2)" || exit 1
+
+CMD ["python3", "-m", "http.server", "8080", "--directory", "/app"]

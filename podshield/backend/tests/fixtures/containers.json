@@ -1,0 +1,45 @@
+[
+  {
+    "Id": "aaaaaaaaaaaa1111111111111111111111111111111111111111111111111111",
+    "Name": "evil",
+    "ImageName": "localhost/demo-bad:latest",
+    "Image": "3f1c9a7b2d4e",
+    "State": {"Status": "running", "Running": true},
+    "Config": {"User": ""},
+    "HostConfig": {
+      "Privileged": true,
+      "NetworkMode": "host",
+      "PidMode": "host",
+      "IpcMode": "private",
+      "SecurityOpt": ["label=disable", "seccomp=unconfined"],
+      "CapAdd": ["CAP_SYS_ADMIN", "NET_ADMIN", "CHOWN", "net_raw"]
+    },
+    "Mounts": [
+      {"Type": "bind", "Source": "/run/podman/podman.sock", "Destination": "/var/run/docker.sock", "RW": true},
+      {"Type": "bind", "Source": "/etc", "Destination": "/host-etc", "RW": false},
+      {"Type": "bind", "Source": "/srv/app/data", "Destination": "/data", "RW": true},
+      {"Type": "volume", "Source": "/var/lib/containers/storage/volumes/v/_data", "Destination": "/v", "RW": true}
+    ]
+  },
+  {
+    "Id": "bbbbbbbbbbbb2222222222222222222222222222222222222222222222222222",
+    "Name": "web",
+    "ImageName": "registry.access.redhat.com/ubi9/ubi-minimal:9.4",
+    "Image": "9a8b7c6d5e4f",
+    "State": {"Status": "running", "Running": true},
+    "Config": {"User": "1001"},
+    "HostConfig": {
+      "Privileged": false,
+      "NetworkMode": "bridge",
+      "PidMode": "",
+      "IpcMode": "shareable",
+      "SecurityOpt": [],
+      "CapAdd": [],
+      "CapDrop": ["ALL"]
+    },
+    "Mounts": [
+      {"Type": "bind", "Source": "/srv/web/config", "Destination": "/config", "RW": false},
+      {"Type": "bind", "Source": "/etc/pki/tls/certs/ca-bundle.crt", "Destination": "/ca.crt", "RW": false}
+    ]
+  }
+]

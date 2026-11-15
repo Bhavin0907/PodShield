@@ -1,0 +1,11 @@
+{
+  "Id": "2222222222222222222222222222222222222222222222222222222222222222",
+  "RepoTags": null,
+  "RepoDigests": [],
+  "Created": "2024-03-01T12:00:00.123456789Z",
+  "Size": 1048576,
+  "Architecture": "amd64",
+  "Os": "linux",
+  "Config": {"User": "1001", "Env": [], "Cmd": ["/bin/true"]},
+  "RootFS": {"Type": "layers", "Layers": ["sha256:aaa"]}
+}

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oval_results xmlns="http://oval.mitre.org/XMLSchema/oval-results-5"
+              xmlns:oval="http://oval.mitre.org/XMLSchema/oval-common-5"
+              xmlns:oval-def="http://oval.mitre.org/XMLSchema/oval-definitions-5">
+  <generator>
+    <oval:product_name>cpe:/a:open-scap:oscap</oval:product_name>
+  </generator>
+  <oval-def:oval_definitions>
+    <oval-def:definitions>
+      <oval-def:definition id="oval:com.redhat.rhsa:def:20241234" version="637" class="patch">
+        <oval-def:metadata>
+          <oval-def:title>RHSA-2024:1234: openssl security update (Important)</oval-def:title>
+          <oval-def:reference source="RHSA" ref_id="RHSA-2024:1234" ref_url="https://access.redhat.com/errata/RHSA-2024:1234"/>
+          <oval-def:reference source="CVE" ref_id="CVE-2024-0001" ref_url="https://access.redhat.com/security/cve/CVE-2024-0001"/>
+          <oval-def:reference source="CVE" ref_id="CVE-2024-0002" ref_url="https://access.redhat.com/security/cve/CVE-2024-0002"/>
+          <oval-def:advisory>
+            <oval-def:severity>Important</oval-def:severity>
+          </oval-def:advisory>
+        </oval-def:metadata>
+        <oval-def:criteria operator="AND">
+          <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:1" comment="Red Hat Enterprise Linux 9 is installed"/>
+          <oval-def:criteria operator="OR">
+            <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:2" comment="openssl is earlier than 1:3.0.7-27.el9"/>
+            <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:3" comment="openssl-libs is earlier than 1:3.0.7-27.el9"/>
+            <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:4" comment="openssl is signed with Red Hat redhatrelease2 key"/>
+          </oval-def:criteria>
+        </oval-def:criteria>
+      </oval-def:definition>
+      <oval-def:definition id="oval:com.redhat.rhsa:def:20245678" version="636" class="patch">
+        <oval-def:metadata>
+          <oval-def:title>RHSA-2024:5678: glibc security update (Critical)</oval-def:title>
+          <oval-def:reference source="RHSA" ref_id="RHSA-2024:5678" ref_url="https://access.redhat.com/errata/RHSA-2024:5678"/>
+          <oval-def:reference source="CVE" ref_id="CVE-2024-0003" ref_url="https://access.redhat.com/security/cve/CVE-2024-0003"/>
+          <oval-def:advisory>
+            <oval-def:severity>Critical</oval-def:severity>
+          </oval-def:advisory>
+        </oval-def:metadata>
+        <oval-def:criteria operator="AND">
+          <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:5" comment="glibc is earlier than 0:2.34-100.el9"/>
+        </oval-def:criteria>
+      </oval-def:definition>
+      <oval-def:definition id="oval:com.redhat.rhsa:def:20249999" version="1" class="patch">
+        <oval-def:metadata>
+          <oval-def:title>RHSA-2024:9999: zlib security update (Low)</oval-def:title>
+          <oval-def:reference source="CVE" ref_id="CVE-2024-9999"/>
+          <oval-def:advisory><oval-def:severity>Low</oval-def:severity></oval-def:advisory>
+        </oval-def:metadata>
+        <oval-def:criteria operator="AND">
+          <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:6" comment="zlib is earlier than 0:1.2.11-40.el9"/>
+        </oval-def:criteria>
+      </oval-def:definition>
+      <oval-def:definition id="oval:com.redhat.rhsa:def:20240001" version="1" class="patch">
+        <oval-def:metadata>
+          <oval-def:title>RHSA-2024:0001: bash bug fix update (Moderate)</oval-def:title>
+          <oval-def:reference source="RHSA" ref_id="RHSA-2024:0001" ref_url="https://access.redhat.com/errata/RHSA-2024:0001"/>
+        </oval-def:metadata>
+        <oval-def:criteria operator="AND">
+          <oval-def:criterion test_ref="oval:com.redhat.rhsa:tst:7" comment="bash is earlier than 0:5.1.8-9.el9"/>
+        </oval-def:criteria>
+      </oval-def:definition>
+    </oval-def:definitions>
+  </oval-def:oval_definitions>
+  <results>
+    <system>
+      <definitions>
+        <definition definition_id="oval:com.redhat.rhsa:def:20241234" result="true" version="637"/>
+        <definition definition_id="oval:com.redhat.rhsa:def:20245678" result="true" version="636"/>
+        <definition definition_id="oval:com.redhat.rhsa:def:20249999" result="false" version="1"/>
+        <definition definition_id="oval:com.redhat.rhsa:def:20240001" result="true" version="1"/>
+      </definitions>
+    </system>
+  </results>
+</oval_results>

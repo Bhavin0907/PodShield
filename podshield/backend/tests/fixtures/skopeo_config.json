@@ -1,0 +1,18 @@
+{
+  "created": "2022-01-01T00:00:00.123456789Z",
+  "architecture": "amd64",
+  "os": "linux",
+  "config": {
+    "User": "",
+    "Env": ["PATH=/usr/bin", "DB_PASSWORD=remote-secret-value"],
+    "Cmd": ["nginx", "-g", "daemon off;"],
+    "ExposedPorts": {"80/tcp": {}, "22/tcp": {}},
+    "Labels": {"maintainer": "someone@example.com"}
+  },
+  "rootfs": {"type": "layers", "diff_ids": ["sha256:d1", "sha256:d2"]},
+  "history": [
+    {"created": "2022-01-01T00:00:00Z", "created_by": "ADD file:abc in /", "comment": "base"},
+    {"created": "2022-01-01T00:00:01Z", "created_by": "ENV DB_PASSWORD=...", "empty_layer": true},
+    {"created": "2022-01-01T00:00:02Z", "created_by": "RUN apt-get install nginx"}
+  ]
+}

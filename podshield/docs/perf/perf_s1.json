@@ -1,0 +1,18 @@
+{
+  "mode": "synthetic",
+  "host": "Windows 10, Python 3.11.7, 20 CPUs",
+  "images": 20,
+  "concurrency": 1,
+  "scan_status": "completed",
+  "errors": [],
+  "simulated_tool_seconds": 2.0,
+  "total_seconds": 61.62,
+  "seconds_per_image_avg": 3.08,
+  "seconds_per_image_max": 4.266,
+  "throughput_images_per_second": 0.32,
+  "peak_memory_mb": 60.5,
+  "psutil": true,
+  "slow_threshold_seconds": 60.0,
+  "slow_images": {},
+  "synthetic_tree": "5 trees x 3000 files x 4 KiB (+ secrets, cache, os-release)"
+}

@@ -1,0 +1,5 @@
+[
+  {"id": "ccc", "created": 1673778030, "CreatedBy": "CMD [\"/bin/sh\" \"-c\" \"python app.py\"]", "Size": 0, "Comment": "", "Tags": null},
+  {"id": "bbb", "created": 1673778029, "CreatedBy": "RUN /bin/sh -c dnf install -y python3", "Size": 312345678, "Comment": "", "Tags": null},
+  {"id": "aaa", "created": 1673778000, "CreatedBy": "ADD file:abc in /", "Size": 100000000, "Comment": "", "Tags": ["localhost/demo-bad:latest"]}
+]

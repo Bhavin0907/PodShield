@@ -1,0 +1,31 @@
+[Unit]
+Description=PodShield API and dashboard
+# The rootful Podman API socket is socket-activated; Wants= makes sure it is enabled.
+Wants=podman.socket
+After=network.target podman.socket
+
+[Service]
+Type=simple
+# Defaults; override in /etc/podshield/podshield.env (optional file) or a drop-in:
+#   systemctl edit podshield-api
+# PODSHIELD_HOST=127.0.0.1 keeps the dashboard off the network. There is no login, so only
+# change it behind a reverse proxy that authenticates users (see README).
+Environment=PODSHIELD_CONFIG=/etc/podshield/config.toml
+Environment=PODSHIELD_STATIC_DIR=/opt/podshield/frontend/dist
+Environment=PODSHIELD_HOST=127.0.0.1
+Environment=PODSHIELD_PORT=8080
+EnvironmentFile=-/etc/podshield/podshield.env
+# Exactly one worker: scan progress (SSE) and the scan queue live in this process's memory.
+ExecStart=/opt/podshield/venv/bin/uvicorn --factory podshield.main:create_default_app \
+    --host ${PODSHIELD_HOST} --port ${PODSHIELD_PORT} --workers 1 --no-server-header
+Restart=on-failure
+RestartSec=3
+# Root is needed for the rootful Podman socket and for `podman image mount`.
+User=root
+UMask=0077
+# Stopping while a scan runs: the scan is marked failed on the next start.
+TimeoutStopSec=30
+# stdout/stderr go to journald: journalctl -u podshield-api
+
+[Install]
+WantedBy=multi-user.target

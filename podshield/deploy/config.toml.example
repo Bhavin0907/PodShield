@@ -1,0 +1,105 @@
+# PodShield configuration. Install as /etc/podshield/config.toml (mode 0640, root).
+#
+# Every value below is the built-in default, so an empty or missing file works too.
+# Environment variables override this file: PODSHIELD_PODMAN_SOCKET, PODSHIELD_DB_PATH,
+# PODSHIELD_LOG_LEVEL, PODSHIELD_STATIC_DIR, PODSHIELD_MAX_IMAGE_AGE_DAYS.
+# Rule overrides made in the dashboard are stored in the database and win over [rules] here.
+
+[podman]
+# Rootful socket (default). For a rootless user use e.g. unix:///run/user/1000/podman/podman.sock
+# together with mode = "rootless" (images are then inspected through `podman unshare`).
+socket = "unix:///run/podman/podman.sock"
+timeout_seconds = 30
+mode = "rootful"            # "rootful" | "rootless"
+
+[database]
+path = "/var/lib/podshield/podshield.db"
+
+[logging]
+level = "INFO"              # DEBUG | INFO | WARNING | ERROR
+
+[server]
+# Directory with the built frontend. Empty = auto-detect; the systemd unit sets
+# PODSHIELD_STATIC_DIR=/opt/podshield/frontend/dist.
+static_dir = ""
+
+[watcher]
+# `podshield watch` scans an image when Podman reports one of these image events.
+actions = ["pull", "build", "tag", "import", "loadfromarchive"]
+debounce_seconds = 5.0      # a pull emits several events; wait this long after the last one
+scan_on_start = false       # also scan every image once when the watcher starts
+
+[thresholds]
+max_image_age_days = 90     # PS-005
+max_image_size_mb = 1024    # PS-007
+max_layers = 30             # PS-008
+
+[trust]
+# Base images from these registries/namespaces are trusted by PS-006 (UBI is always trusted).
+# Include your internal registry here.
+trusted_registries = [
+    "registry.access.redhat.com",
+    "registry.redhat.io",
+    "quay.io/podman",
+]
+policy_path = "/etc/containers/policy.json"
+registries_conf = "/etc/containers/registries.conf"
+registries_conf_d = "/etc/containers/registries.conf.d"
+registries_d = "/etc/containers/registries.d"
+
+[scan]
+# Images scanned in parallel within one scan. Each may mount a filesystem and run oscap/trivy,
+# so keep this small on a modest VM. 1 = strictly one image at a time.
+max_concurrent_images = 4
+
+[filesystem]
+# Mount each image read-only and look inside (secrets, SUID files, world-writable files, ...).
+enabled = true
+max_file_size_kb = 1024     # larger files are not content-scanned
+max_files = 300000
+timeout_seconds = 300
+max_reported = 50           # cap on evidence entries per finding
+
+[oscap]
+# CVE scan of RHEL/UBI-based images with OpenSCAP. PodShield never downloads the OVAL feed:
+#   curl -fL https://security.access.redhat.com/data/oval/v2/RHEL9/rhel-9.oval.xml.bz2 \
+#     | bzip2 -d > /var/lib/podshield/oval/rhel-9.oval.xml
+# deploy/install.sh does this for you (or use --oval-file when the host is offline).
+enabled = true
+binary = "oscap-podman"
+oval_path = "/var/lib/podshield/oval/rhel-9.oval.xml"      # .xml.bz2 also works
+timeout_seconds = 900
+
+[trivy]
+# Optional second CVE source that also understands non-RHEL images. Skipped when not installed.
+enabled = true
+binary = "trivy"
+timeout_seconds = 900
+skip_db_update = false      # true in offline labs with a pre-seeded cache
+cache_dir = ""
+tmp_dir = ""                # `podman save` tarballs go here; use real disk if /tmp is small
+
+[registry]
+# Pre-pull audits (`podshield registry REF`, "Registry" page) via skopeo.
+binary = "skopeo"
+timeout_seconds = 60
+tls_verify = true
+authfile = ""
+
+[scoring]
+critical = 25
+high = 10
+medium = 4
+low = 1
+info = 0
+cve_cap = 40                # CVEs can cost at most this many points
+grade_a = 90
+grade_b = 80
+grade_c = 70
+grade_d = 60
+
+# Per-rule overrides (all optional). Disable a rule or change its severity:
+# [rules.PS-007]
+# enabled = false
+# [rules.PS-002]
+# severity = "medium"

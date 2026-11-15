@@ -1,0 +1,7 @@
+# Shell scripts, Containerfiles and the Makefile run on Linux: never convert them to CRLF.
+*.sh               text eol=lf
+*.Containerfile    text eol=lf
+Containerfile.*    text eol=lf
+Makefile           text eol=lf
+*.service          text eol=lf
+*.timer            text eol=lf

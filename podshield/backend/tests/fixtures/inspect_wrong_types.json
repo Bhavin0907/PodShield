@@ -1,0 +1,16 @@
+{
+  "Id": "6666666666666666666666666666666666666666666666666666666666666666",
+  "RepoTags": "localhost/pstest-wrong:1.0",
+  "Created": 12345678901234567890,
+  "Size": "not-a-number",
+  "Config": {
+    "User": 1001,
+    "Env": "SINGLE=value",
+    "Cmd": "run.sh",
+    "ExposedPorts": ["8080/tcp"],
+    "Labels": ["not", "a", "dict"],
+    "Healthcheck": "none"
+  },
+  "Annotations": null,
+  "RootFS": {"Layers": null}
+}

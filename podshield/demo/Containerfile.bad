@@ -1,0 +1,40 @@
+# DEMO ONLY - a deliberately insecure image for showing what PodShield reports.
+# Do not use this as a template. Every credential below is fake (the AWS pair is the
+# documented example from the AWS docs and the password is made up).
+#
+#   podman build --format docker -t localhost/demo-bad:latest -f demo/Containerfile.bad demo/
+#   podshield scan localhost/demo-bad:latest -v
+#
+# Expected findings (roughly):
+#   PS-001 runs as root                  PS-002 :latest tag
+#   PS-003 secrets in ENV                PS-004 secrets inside the filesystem
+#   PS-006 untrusted base image          PS-009 package caches left behind
+#   PS-010 setuid binary                 PS-011 no HEALTHCHECK
+#   PS-012 missing OCI labels            PS-013 SSH port exposed
+#   PS-015 shell and package manager present
+
+# Unpinned tag from a registry that is not on the trusted list.
+FROM docker.io/library/fedora:latest
+
+# PS-003: credentials in the image config are visible to anyone who can `podman inspect`.
+ENV DB_PASSWORD=hunter2-super-secret \
+    AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+    API_TOKEN=demo-token-1234567890abcdef
+
+# PS-009: no `dnf clean all`, so package metadata and caches stay in the layer.
+RUN dnf install -y python3 openssh-server
+
+# PS-004: credentials copied into the filesystem stay in the layer even if deleted later.
+RUN mkdir -p /app /root/.aws \
+    && printf '[default]\naws_access_key_id = AKIAIOSFODNN7EXAMPLE\naws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n' > /root/.aws/credentials \
+    && printf 'DATABASE_URL=postgres://admin:hunter2-super-secret@db.internal:5432/app\n' > /app/.env
+
+# PS-010: a setuid copy of a shell is a ready-made privilege escalation.
+RUN cp /bin/sh /usr/local/bin/rootsh && chmod u+s /usr/local/bin/rootsh
+
+# PS-013: SSH inside a container is almost never needed.
+EXPOSE 22 8080
+
+# PS-001: no USER instruction, so everything runs as root.
+# PS-011 / PS-012: no HEALTHCHECK and no LABELs.
+CMD ["python3", "-m", "http.server", "8080", "--directory", "/app"]

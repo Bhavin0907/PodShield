@@ -1,0 +1,31 @@
+{
+  "Id": "9a8b7c6d5e4f30211203f4e5d6c7b8a99a8b7c6d5e4f30211203f4e5d6c7b8a9",
+  "RepoTags": ["registry.access.redhat.com/ubi9/ubi-minimal:9.4"],
+  "RepoDigests": ["registry.access.redhat.com/ubi9/ubi-minimal@sha256:0123456789abcdef"],
+  "Created": "2099-01-01T00:00:00Z",
+  "Size": 98765432,
+  "Architecture": "amd64",
+  "Os": "linux",
+  "Config": {
+    "User": "1001",
+    "Env": [
+      "PATH=/usr/local/bin:/usr/bin",
+      "TOKENIZERS_PARALLELISM=false",
+      "DB_PASSWORD=${DB_PASSWORD}",
+      "SECRET_KEY_FILE=/run/secrets/key"
+    ],
+    "Entrypoint": ["/usr/bin/app"],
+    "Cmd": null,
+    "ExposedPorts": {"8080/tcp": {}},
+    "Labels": {
+      "org.opencontainers.image.authors": "platform@example.com",
+      "org.opencontainers.image.version": "1.4.2",
+      "org.opencontainers.image.source": "https://git.example.com/org/app"
+    },
+    "Healthcheck": {
+      "Test": ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"],
+      "Interval": 30000000000
+    }
+  },
+  "RootFS": {"Type": "layers", "Layers": ["sha256:aaa", "sha256:bbb"]}
+}

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PodShield report: {{ image.name }}</title>
+<style>
+  :root {
+    --bg: #fafafa; --card: #ffffff; --fg: #18181b; --muted: #71717a; --border: #e4e4e7;
+    --code: #f4f4f5; --accent: #059669;
+    --critical: #dc2626; --high: #ea580c; --medium: #d97706; --low: #2563eb; --info: #71717a;
+    --gA: #059669; --gB: #16a34a; --gC: #d97706; --gD: #ea580c; --gF: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #09090b; --card: #18181b; --fg: #fafafa; --muted: #a1a1aa;
+            --border: #3f3f46; --code: #27272a; --accent: #34d399; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 16px; background: var(--bg); color: var(--fg);
+         font: 14px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+          padding: 24px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0 0 4px; word-break: break-all; }
+  h2 { font-size: 16px; margin: 0 0 16px; }
+  .muted { color: var(--muted); }
+  .head { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .ring { --pct: {{ image.score or 0 }}; --c: var(--g{{ image.grade or 'F' }});
+          width: 112px; height: 112px; border-radius: 50%; flex: none;
+          background: conic-gradient(var(--c) calc(var(--pct) * 1%), var(--border) 0);
+          display: grid; place-items: center; }
+  .ring > div { width: 88px; height: 88px; border-radius: 50%; background: var(--card);
+                display: grid; place-items: center; text-align: center; line-height: 1.1; }
+  .ring b { font-size: 28px; } .ring span { font-size: 11px; color: var(--muted); }
+  .grade { display: inline-block; padding: 2px 12px; border-radius: 999px; color: #fff;
+           font-weight: 700; background: var(--g{{ image.grade or 'F' }}); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0 0; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-all; }
+  .counts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .pill { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border);
+          font-size: 12px; }
+  .sev { display: inline-block; min-width: 68px; text-align: center; padding: 1px 8px;
+         border-radius: 6px; color: #fff; font-size: 11px; font-weight: 700;
+         text-transform: uppercase; }
+  .sev-critical { background: var(--critical); } .sev-high { background: var(--high); }
+  .sev-medium { background: var(--medium); } .sev-low { background: var(--low); }
+  .sev-info { background: var(--info); }
+  details { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px;
+            padding: 10px 14px; }
+  summary { cursor: pointer; font-weight: 600; }
+  summary .rid { color: var(--muted); font-weight: 400; margin-right: 6px; }
+  ul { margin: 8px 0; padding-left: 20px; }
+  pre { background: var(--code); border-radius: 10px; padding: 12px; overflow-x: auto;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 8px 0 0;
+        white-space: pre-wrap; word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px;
+            word-break: break-all; }
+  .bar { height: 8px; border-radius: 4px; background: var(--accent); min-width: 2px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+  @media print { body { background: #fff; } .card { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="head">
+      <div class="ring"><div><div><b>{{ image.score if image.score is not none else '-' }}</b><br><span>/ 100</span></div></div></div>
+      <div style="flex:1; min-width:240px">
+        <h1>{{ image.name }}</h1>
+        <div><span class="grade">Grade {{ image.grade or '?' }}</span>
+          <span class="muted"> &nbsp;{{ image.short_id }}</span></div>
+        <dl>
+          <dt>Registry</dt><dd>{{ image.registry }}</dd>
+          <dt>Size</dt><dd>{{ size_h(image.size) }}</dd>
+          <dt>Created</dt><dd>{{ dt(image.created) }}{% if image.age_days is not none %} ({{ image.age_days }} days old){% endif %}</dd>
+          <dt>Base image</dt><dd>{{ image.base_image or 'unknown' }}</dd>
+          <dt>Last scanned</dt><dd>{{ dt(image.last_scanned_at) }}</dd>
+          {% if image.repo_tags|length > 1 %}<dt>Tags</dt><dd>{{ image.repo_tags|join(', ') }}</dd>{% endif %}
+        </dl>
+      </div>
+    </div>
+    <div class="counts">
+      {% for sev in severities %}
+        <span class="pill"><span class="sev sev-{{ sev }}">{{ sev }}</span>
+          {{ image.finding_counts[sev] }} findings{% if image.cve_counts[sev] %}, {{ image.cve_counts[sev] }} CVEs{% endif %}</span>
+      {% endfor %}
+    </div>
+    {% if unavailable %}
+    <p class="muted" style="margin-bottom:0">Scanners not available during the last scan:
+      {% for s in unavailable %}{{ s.scanner }} ({{ s.status }}){% if not loop.last %}, {% endif %}{% endfor %}.
+      Related findings and CVE data may be missing.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Findings ({{ image.findings|length }})</h2>
+    {% if not image.findings %}<p class="muted">No findings. Nice work.</p>{% endif %}
+    {% for sev in severities %}
+      {% for f in grouped[sev] %}
+      <details {% if sev in ('critical', 'high') %}open{% endif %}>
+        <summary><span class="sev sev-{{ sev }}">{{ sev }}</span>
+          <span class="rid">{{ f.rule_id }}</span>{{ f.title }}</summary>
+        <p>{{ f.description }}</p>
+        {% if f.evidence %}<strong>Evidence</strong><ul>{% for e in f.evidence %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+        {% if f.remediation %}<strong>Remediation</strong><pre>{{ f.remediation }}</pre>{% endif %}
+      </details>
+      {% endfor %}
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Vulnerabilities ({{ image.vulnerabilities|length }})</h2>
+    {% if image.vulnerabilities %}
+    <table>
+      <tr><th>CVE</th><th>Severity</th><th>Package</th><th>Installed</th><th>Fixed in</th><th>Source</th></tr>
+      {% for v in image.vulnerabilities %}
+      <tr>
+        <td class="mono">{{ v.cve_id }}</td>
+        <td><span class="sev sev-{{ v.severity.value }}">{{ v.severity.value }}</span></td>
+        <td class="mono">{{ v.package or '-' }}</td>
+        <td class="mono">{{ v.installed_version or '-' }}</td>
+        <td class="mono">{{ v.fixed_version or 'no fix yet' }}</td>
+        <td>{{ v.source }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}<p class="muted">No CVEs recorded (the CVE scanners may be unavailable; see above).</p>{% endif %}
+  </section>
+
+  {% if image.layers %}
+  <section class="card">
+    <h2>Layers ({{ image.layers|length }})</h2>
+    <table>
+      <tr><th style="width:90px">Size</th><th style="width:30%">&nbsp;</th><th>Created by</th></tr>
+      {% for l in image.layers %}
+      <tr>
+        <td>{{ size_h(l.size) if not l.empty else 'empty' }}</td>
+        <td><div class="bar" style="width: {{ (l.size / max_layer * 100)|round(1) if max_layer else 0 }}%"></div></td>
+        <td class="mono">{{ l.created_by }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </section>
+  {% endif %}
+
+  {% if image.config %}
+  <section class="card">
+    <h2>Configuration</h2>
+    <p class="muted">Secret-looking values are masked.</p>
+    <pre>{{ image.config|tojson(indent=2) }}</pre>
+  </section>
+  {% endif %}
+
+  <footer>Generated by PodShield {{ version }} on {{ generated }}</footer>
+</main>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "Id": "4444444444444444444444444444444444444444444444444444444444444444",
+  "RepoTags": ["localhost/pstest-ancient:1.0"],
+  "Created": "1999-12-31T23:59:59.999999999Z",
+  "Size": 1000,
+  "Architecture": "amd64",
+  "Os": "linux",
+  "Config": {"User": "1001"}
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=PodShield image watcher (scans images on Podman pull/build/tag)
+Wants=podman.socket
+After=network.target podman.socket
+
+[Service]
+Type=simple
+Environment=PODSHIELD_CONFIG=/etc/podshield/config.toml
+EnvironmentFile=-/etc/podshield/podshield.env
+ExecStart=/opt/podshield/venv/bin/podshield watch
+Restart=on-failure
+RestartSec=5
+User=root
+UMask=0077
+# SIGTERM lets a scan that is already running finish and record its result; only after
+# TimeoutStopSec are the remaining processes (oscap, trivy, ...) killed.
+KillMode=mixed
+TimeoutStopSec=300
+# Scans are background work: do not starve the containers on this host.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
