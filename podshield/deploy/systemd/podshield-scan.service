@@ -1,6 +1,6 @@
 [Unit]
 Description=PodShield scheduled scan of all local images
-Wants=podman.socket
+Requires=podman.socket
 After=network.target podman.socket
 
 [Service]
@@ -8,11 +8,15 @@ Type=oneshot
 Environment=PODSHIELD_CONFIG=/etc/podshield/config.toml
 EnvironmentFile=-/etc/podshield/podshield.env
 # Exit code is 0 unless the scan itself fails. Add `--fail-on high` to make the unit "failed"
-# (visible in `systemctl --failed` and monitoring) when any image has a high or critical issue.
+# (visible in `systemctl --failed`) when any image has a high or critical issue.
 ExecStart=/opt/podshield/venv/bin/podshield scan --all
 User=root
 UMask=0077
 Nice=10
 IOSchedulingClass=idle
-# Large fleets with oscap/trivy can take a while.
+# Many images with oscap/trivy can take a while.
 TimeoutStartSec=4h
+# Logs go to journald: journalctl -u podshield-scan
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=podshield-scan

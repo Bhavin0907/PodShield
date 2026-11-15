@@ -193,23 +193,79 @@ install_frontend() {
         return
     fi
     local dist="$SRC_DIR/frontend/dist"
-    if [[ ! -f "$dist/index.html" ]]; then
-        if command -v npm >/dev/null 2>&1; then
-            printf 'frontend/dist not found; building it (npm ci && npm run build)\n'
-            if (( DRY_RUN )); then
-                printf '[dry-run] (cd %q && npm ci && npm run build)\n' "$SRC_DIR/frontend"
-            else
-                (cd "$SRC_DIR/frontend" && npm ci && npm run build)
-            fi
-        else
-            warn "frontend/dist is missing and npm is not installed: the API will work but the dashboard will not. Build it elsewhere (cd frontend && npm ci && npm run build), copy frontend/dist here and re-run."
-            return
-        fi
+    if [[ -f "$dist/index.html" ]]; then
+        ok "using the existing $dist (delete it to force a rebuild)"
+    elif ! build_frontend; then
+        return 0
     fi
     run rm -rf "$PREFIX/frontend/dist"
     run install -d -m 0755 "$PREFIX/frontend"
-    run cp -a "$dist" "$PREFIX/frontend/dist"
+    # Copy without the builder's owner: the files are served by a root service.
+    run cp -a --no-preserve=ownership "$dist" "$PREFIX/frontend/dist"
+    run chown -R root:root "$PREFIX/frontend"
     ok "dashboard installed in $PREFIX/frontend/dist"
+}
+
+# Vite 7 needs Node 20.19+ (or 22.12+). RHEL 9's default Node is older, hence the module stream.
+node_is_recent_enough() {
+    command -v node >/dev/null 2>&1 || return 1
+    local v major minor
+    v="$(node --version 2>/dev/null)" || return 1
+    v="${v#v}"
+    major="${v%%.*}"
+    minor="${v#*.}"
+    minor="${minor%%.*}"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    (( major >= 23 || (major == 22 && minor >= 12) || (major == 20 && minor >= 19) ))
+}
+
+install_node() {
+    if node_is_recent_enough; then
+        ok "Node.js $(node --version) is recent enough"
+        return 0
+    fi
+    if (( SKIP_PACKAGES )); then
+        warn "Node.js 20.19+ is required to build the dashboard and --skip-packages is set"
+        return 1
+    fi
+    printf 'installing Node.js 20 (dnf module nodejs:20)\n'
+    if ! run dnf module install -y nodejs:20; then
+        # Another stream (RHEL's default is older) may already be enabled: switch it.
+        run dnf module reset -y nodejs
+        run dnf module install -y nodejs:20
+    fi
+    if (( DRY_RUN )); then
+        return 0
+    fi
+    if ! node_is_recent_enough; then
+        warn "Node.js $(node --version 2>/dev/null || echo missing) is older than 20.19, which Vite 7 needs; the build may fail (dnf update nodejs)"
+    fi
+}
+
+# Build frontend/dist inside the checkout. Returns non-zero (after a warning) if it cannot.
+build_frontend() {
+    local web="$SRC_DIR/frontend"
+    printf 'frontend/dist not found: building it\n'
+    install_node || return 1
+    if (( DRY_RUN )); then
+        printf '[dry-run] (cd %q && npm ci && npm run build)\n' "$web"
+        return 0
+    fi
+    command -v npm >/dev/null 2>&1 || { warn "npm not found after installing Node.js; the dashboard was not built"; return 1; }
+    # Build as the user who ran sudo, so node_modules/ and dist/ in their checkout are not
+    # owned by root. Falls back to root when run from a real root shell.
+    local -a as_user=()
+    if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+        local home
+        home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+        as_user=(runuser -u "$SUDO_USER" -- env "HOME=$home")
+    fi
+    if ! (cd "$web" && "${as_user[@]}" npm ci && "${as_user[@]}" npm run build); then
+        warn "the dashboard build failed (see the output above); the API works without it. Fix the error and re-run the installer"
+        return 1
+    fi
+    [[ -f "$SRC_DIR/frontend/dist/index.html" ]] || { warn "the build produced no frontend/dist/index.html"; return 1; }
+    ok "dashboard built"
 }
 
 install_config() {

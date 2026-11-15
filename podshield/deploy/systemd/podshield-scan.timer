@@ -1,11 +1,12 @@
 [Unit]
-Description=Nightly PodShield scan of all local images
+Description=Daily PodShield scan of all local images
 
 [Timer]
+# Every day at 02:30 (host time).
 OnCalendar=*-*-* 02:30:00
-# Spread the load when several hosts share a schedule.
-RandomizedDelaySec=15min
-# If the machine was off at 02:30, scan shortly after it boots.
+# Spread the start a little so it does not collide with other nightly jobs.
+RandomizedDelaySec=10min
+# If the VM was off at 02:30, scan shortly after it boots.
 Persistent=true
 Unit=podshield-scan.service
 

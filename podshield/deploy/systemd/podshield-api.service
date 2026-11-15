@@ -1,15 +1,15 @@
 [Unit]
 Description=PodShield API and dashboard
-# The rootful Podman API socket is socket-activated; Wants= makes sure it is enabled.
-Wants=podman.socket
+# The rootful Podman API socket is socket-activated: Requires= makes systemd start it first
+# and stop this service if it is stopped.
+Requires=podman.socket
 After=network.target podman.socket
 
 [Service]
 Type=simple
-# Defaults; override in /etc/podshield/podshield.env (optional file) or a drop-in:
-#   systemctl edit podshield-api
+# Defaults; the installer writes the real values to /etc/podshield/podshield.env (below).
 # PODSHIELD_HOST=127.0.0.1 keeps the dashboard off the network. There is no login, so only
-# change it behind a reverse proxy that authenticates users (see README).
+# change it behind something that authenticates users.
 Environment=PODSHIELD_CONFIG=/etc/podshield/config.toml
 Environment=PODSHIELD_STATIC_DIR=/opt/podshield/frontend/dist
 Environment=PODSHIELD_HOST=127.0.0.1
@@ -25,7 +25,10 @@ User=root
 UMask=0077
 # Stopping while a scan runs: the scan is marked failed on the next start.
 TimeoutStopSec=30
-# stdout/stderr go to journald: journalctl -u podshield-api
+# Logs go to journald: journalctl -u podshield-api
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=podshield-api
 
 [Install]
 WantedBy=multi-user.target

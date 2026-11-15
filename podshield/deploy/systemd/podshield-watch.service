@@ -1,6 +1,6 @@
 [Unit]
 Description=PodShield image watcher (scans images on Podman pull/build/tag)
-Wants=podman.socket
+Requires=podman.socket
 After=network.target podman.socket
 
 [Service]
@@ -20,6 +20,10 @@ TimeoutStopSec=300
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
+# Logs go to journald: journalctl -u podshield-watch
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=podshield-watch
 
 [Install]
 WantedBy=multi-user.target

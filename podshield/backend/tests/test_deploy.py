@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -93,7 +94,7 @@ def test_services_run_installed_binaries_without_a_shell(name: str) -> None:
     assert exec_start[0].rsplit("/", 1)[-1] not in {"sh", "bash"}
     assert unit.get("Service", "User") == "root"  # rootful socket and image mounts
     assert "podman.socket" in unit.get("Unit", "After")
-    assert "podman.socket" in unit.get("Unit", "Wants")
+    assert "podman.socket" in unit.get("Unit", "Requires")  # starts with, stops with the socket
 
 
 def test_api_unit_is_single_worker_and_local_by_default() -> None:
@@ -106,6 +107,25 @@ def test_api_unit_is_single_worker_and_local_by_default() -> None:
     assert "PODSHIELD_HOST=127.0.0.1" in env  # there is no login: stay on loopback
     assert "PODSHIELD_STATIC_DIR=/opt/podshield/frontend/dist" in env
     assert unit.get("Service", "EnvironmentFile").startswith("-")  # optional file
+
+
+@pytest.mark.parametrize("name", SERVICES)
+def test_services_log_to_journald(name: str) -> None:
+    unit = read_unit(name)
+    assert unit.get("Service", "StandardOutput") == "journal"
+    assert unit.get("Service", "StandardError") == "journal"
+    assert unit.get("Service", "SyslogIdentifier") == name.removesuffix(".service")
+
+
+@pytest.mark.parametrize("name", ["podshield-api.service", "podshield-watch.service"])
+def test_long_running_services_restart_on_failure(name: str) -> None:
+    assert read_unit(name).get("Service", "Restart") == "on-failure"
+
+
+def test_scan_runs_the_cli_for_all_images_daily() -> None:
+    service = read_unit("podshield-scan.service")
+    assert service.get("Service", "ExecStart").endswith("podshield scan --all")
+    assert read_unit("podshield-scan.timer").get("Timer", "OnCalendar").startswith("*-*-* ")
 
 
 def test_scan_service_is_oneshot_and_timer_is_persistent() -> None:
@@ -233,6 +253,69 @@ def test_install_oval_file_is_used_instead_of_downloading(tmp_path: Path) -> Non
     assert proc.returncode == 0, proc.stderr
     assert "curl" not in proc.stdout
     assert f"cp -f {feed} /var/lib/podshield/oval/rhel-9.oval.xml.tmp" in proc.stdout
+
+
+def fake_checkout(tmp_path: Path) -> Path:
+    """A minimal checkout without frontend/dist, so the dashboard has to be built."""
+    root = tmp_path / "checkout"
+    shutil.copytree(DEPLOY, root / "deploy")
+    (root / "backend").mkdir()
+    (root / "backend" / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+    (root / "frontend").mkdir()
+    return root
+
+
+def env_with_node(tmp_path: Path, version: str) -> dict[str, str]:
+    """An environment whose `node --version` prints the given version."""
+    bin_dir = tmp_path / f"bin-{version}"
+    bin_dir.mkdir()
+    node = bin_dir / "node"
+    node.write_text(f"#!/bin/sh\necho {version}\n")
+    node.chmod(0o755)
+    return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+
+
+def run_dry(root: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(root / "deploy" / "install.sh"), "--dry-run", "--force", *args],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        env=env,
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
+def test_install_builds_the_dashboard_with_node_20_when_dist_is_missing(tmp_path: Path) -> None:
+    root = fake_checkout(tmp_path)
+    proc = run_dry(root, env_with_node(tmp_path, "v16.20.2"))  # RHEL 9's default Node is too old
+    assert proc.returncode == 0, proc.stderr
+    out = proc.stdout
+    assert "dnf module install -y nodejs:20" in out
+    assert out.index("nodejs:20") < out.index("npm ci && npm run build")
+    assert f"cp -a --no-preserve=ownership {root}/frontend/dist /opt/podshield/frontend/dist" in out
+    assert "chown -R root:root /opt/podshield/frontend" in out
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
+def test_install_does_not_reinstall_a_recent_node(tmp_path: Path) -> None:
+    root = fake_checkout(tmp_path)
+    proc = run_dry(root, env_with_node(tmp_path, "v20.19.4"))
+    assert proc.returncode == 0, proc.stderr
+    assert "nodejs:20" not in proc.stdout
+    assert "npm ci && npm run build" in proc.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
+def test_install_skips_the_build_when_dist_exists(tmp_path: Path) -> None:
+    root = fake_checkout(tmp_path)
+    (root / "frontend" / "dist").mkdir()
+    (root / "frontend" / "dist" / "index.html").write_text("<html></html>")
+    proc = run_dry(root, env_with_node(tmp_path, "v16.0.0"))
+    assert proc.returncode == 0, proc.stderr
+    assert "npm ci" not in proc.stdout and "nodejs:20" not in proc.stdout
+    assert "cp -a --no-preserve=ownership" in proc.stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")

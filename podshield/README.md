@@ -68,8 +68,9 @@ The installer is idempotent, so run it again to upgrade. It:
 
 1. installs packages with `dnf` (Python 3.11, podman, skopeo, OpenSCAP);
 2. creates a virtualenv in `/opt/podshield/venv` and installs the backend into it;
-3. builds the dashboard (if `frontend/dist` is missing and `npm` exists) and copies it to
-   `/opt/podshield/frontend/dist`;
+3. builds the dashboard if `frontend/dist` is missing (installing Node.js 20 with
+   `dnf module install nodejs:20` first; RHEL's default Node is too old for Vite) and copies it
+   to `/opt/podshield/frontend/dist`;
 4. writes `/etc/podshield/config.toml` **only if it does not exist yet** (an updated example is
    always placed beside it as `config.toml.example`);
 5. downloads and unpacks the Red Hat OVAL feed to `/var/lib/podshield/oval/rhel-9.oval.xml`
