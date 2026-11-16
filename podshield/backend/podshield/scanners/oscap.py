@@ -21,7 +21,7 @@ from xml.etree.ElementTree import Element, ParseError  # nosec B405
 
 from defusedxml.ElementTree import iterparse
 
-from podshield.config import Settings
+from podshield.config import Settings, path_is_file
 from podshield.scanners.base import ScannerError, ScannerUnavailable, ScannerUnsupported, run_tool
 from podshield.schemas import ImageInfo, Severity, Vulnerability
 
@@ -187,7 +187,7 @@ class OscapScanner:
         cfg = self.settings.oscap
         if shutil.which(cfg.binary) is None:
             raise ScannerUnavailable(f"{cfg.binary} not installed (dnf install openscap-utils)")
-        if not Path(cfg.oval_path).is_file():
+        if not path_is_file(cfg.oval_path):
             raise ScannerUnavailable(
                 f"OVAL feed not found at {cfg.oval_path}; download it from "
                 "https://www.redhat.com/security/data/oval/v2/ and set [oscap].oval_path"

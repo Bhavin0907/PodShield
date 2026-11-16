@@ -27,6 +27,20 @@ from podshield.schemas import Severity
 log = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = "/etc/podshield/config.toml"
+
+
+def path_is_file(path: str | os.PathLike[str]) -> bool:
+    """``Path.is_file()`` that returns False instead of raising on EACCES.
+
+    Python 3.11's ``Path.is_file`` only swallows ENOENT-style errors, so a non-root user
+    probing a root-only directory such as /var/lib/podshield gets a PermissionError.
+    """
+    try:
+        return Path(path).is_file()
+    except OSError:
+        return False
+
+
 DEFAULT_PODMAN_SOCKET = "unix:///run/podman/podman.sock"
 DEFAULT_DB_PATH = "/var/lib/podshield/podshield.db"
 
@@ -256,7 +270,7 @@ def load_settings(
     config_path = Path(path or environ.get("PODSHIELD_CONFIG", DEFAULT_CONFIG_PATH))
 
     data: dict[str, Any] = {}
-    if config_path.is_file():
+    if path_is_file(config_path):
         try:
             with config_path.open("rb") as fh:
                 data = tomllib.load(fh)

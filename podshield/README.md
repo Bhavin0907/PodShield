@@ -173,8 +173,18 @@ OK) and an SELinux AVC check. At the end it prints a one-screen summary with one
 
 The full log goes to `~/podshield-selftest-<timestamp>.log`. With `--push-log` the log, with
 anything that looks like a credential masked, is committed to the `selftest-logs` branch and
-pushed (git may ask for your GitHub credentials or token), so it can be read elsewhere with
-`git fetch origin selftest-logs && git show origin/selftest-logs:logs/<file>`. Other options:
+pushed, so it can be read elsewhere with
+`git fetch origin selftest-logs && git show origin/selftest-logs:logs/<file>`. The push never
+prompts: if no GitHub credentials are saved it is skipped (the summary says so) and the log
+stays local. To save a token once (as your normal user, not with sudo):
+
+```bash
+git config --global credential.helper store
+read -rp 'GitHub user: ' u; read -rsp 'GitHub token: ' t; echo
+printf 'url=https://github.com\nusername=%s\npassword=%s\n\n' "$u" "$t" | git credential approve
+```
+
+Other options:
 `--skip-install`, `--skip-integration` (the slowest step), `--skip-demo`, and `--oval-file`,
 `--port` and `--bind`, which are passed on to `install.sh`.
 

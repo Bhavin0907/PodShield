@@ -89,3 +89,27 @@ def test_bad_severity_override_raises(tmp_path: Path) -> None:
     cfg.write_text('[rules.PS-001]\nseverity = "urgent"\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_settings(cfg, env={})
+
+
+def test_unreadable_paths_are_reported_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-root user probing root-only /var/lib/podshield must not crash /api/health.
+
+    Python 3.11's Path.is_file re-raises EACCES; simulate it so this runs on any OS/user.
+    """
+    from podshield.config import path_is_file
+    from podshield.scanners.status import scanner_statuses
+
+    real_stat = Path.stat
+
+    def stat(self: Path, *args: object, **kwargs: object) -> object:
+        if str(self).startswith(("/var/lib/podshield", "/etc/podshield")):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_stat(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", stat)
+    assert path_is_file("/var/lib/podshield/oval/rhel-9.oval.xml") is False
+    settings = load_settings("/etc/podshield/config.toml", env={})
+    oscap = {s.name: s for s in scanner_statuses(settings)}["oscap"]
+    assert oscap.available is False

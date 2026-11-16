@@ -9,7 +9,12 @@ PodShield: Container Image Security & Hygiene Auditor for Podman on RHEL 9 (cour
 
 ## Current status
 - App phases 1 to 6 from PROMPT.md are done.
-- RHEL integration (DEPLOY_PROMPT.MD) is implemented, not yet confirmed on the workstation:
+- RHEL integration (DEPLOY_PROMPT.MD) is implemented. First workstation run (db0eb3b, 2026-11-16):
+  6/9 PASS (install, verify, API smoke, reboot safety, SELinux AVC all good). Fixed since:
+  unit tests (Path.is_file raises EACCES on py3.11 -> config.path_is_file), watcher never saw
+  events (podman-py filter {"type": [..]} encoded as "['image']" -> "type=image" strings),
+  --push-log (plumbing commit, no worktree; skipped when no saved credentials, never prompts).
+  8 of the 12 integration failures are unidentified (old -rs hid them; now -rfEs + on-screen list).
   - deploy/install.sh: idempotent installer. Builds frontend/dist (gitignored) with Node 20,
     falling back to nodejs:22 if 20 < 20.19. Downloads OVAL (or --oval-file), restorecon, units,
     SELinux checks (port label only if confined; NoNewPrivileges off via drop-in only if
@@ -19,7 +24,9 @@ PodShield: Container Image Security & Hygiene Auditor for Podman on RHEL 9 (cour
   - deploy/verify.sh (read-only PASS/FAIL), deploy/uninstall.sh (--purge), deploy/lib.sh
     (shared helpers, log sanitizer), demo/run-demo.sh (waits for the watcher, prints grades).
   - deploy/selftest.sh: one command runs everything and prints a one-screen summary.
-    `--push-log` pushes the sanitized log to branch `selftest-logs`; read it with
+    `--push-log` pushes the sanitized log to branch `selftest-logs` when GitHub credentials
+    are saved (see README); read it with
     `git fetch origin selftest-logs`.
 - Workstation command: `cd ~/PodShield && git pull && sudo bash podshield/deploy/selftest.sh --push-log`
-- Next: read the selftest log from the selftest-logs branch and fix whatever failed.
+- Next: rerun the selftest, read its log (selftest-logs branch or the on-screen failed-test
+  list) and fix the remaining integration failures.

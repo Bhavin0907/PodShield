@@ -12,6 +12,7 @@ import types
 from typing import Any, ClassVar
 
 import pytest
+from podman.api import prepare_filters
 
 from podshield.podman_client import (
     ImageNotFoundError,
@@ -295,7 +296,11 @@ def test_events_uses_a_dedicated_connection_without_a_read_timeout() -> None:
     assert list(c.events(since=5)) == [{"Type": "image", "Action": "pull"}]
     events_api = FakeApi.instances[-1]
     assert events_api.timeout is None  # idle streams must not time out
-    assert events_api.last_events_args == (5, {"type": ["image"]}, True)
+    since, filters, decode = events_api.last_events_args
+    assert (since, decode) == (5, True)
+    # What podman-py actually sends to Podman: must be {"type": ["image"]}, not "['image']".
+    assert prepare_filters(filters) == '{"type": ["image"]}'
+
     c.close()
     assert events_api.closed
 

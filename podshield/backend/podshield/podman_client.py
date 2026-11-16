@@ -231,8 +231,10 @@ class PodmanClient:
                 raise PodmanUnavailable(self._unavailable_message(exc)) from exc
             self._events_client = client
         try:
+            # "key=value" strings, not {"type": [...]}: podman-py str()s dict values, so a list
+            # became the filter type=['image'], which matches nothing and silenced the watcher.
             yield from self._events_client.events(
-                since=since, filters={"type": list(types)}, decode=True
+                since=since, filters=[f"type={t}" for t in types], decode=True
             )
         except Exception as exc:
             self._events_client = None  # force a fresh connection on the next attempt

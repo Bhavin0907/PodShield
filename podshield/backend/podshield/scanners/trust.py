@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from podshield.config import TrustSettings
+from podshield.config import TrustSettings, path_is_file
 
 log = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ def load_trust_policy(cfg: TrustSettings) -> TrustPolicy:
     conf_d = Path(cfg.registries_conf_d)
     if conf_d.is_dir():
         conf_paths += sorted(conf_d.glob("*.conf"))
-    _load_registries([p for p in conf_paths if p.is_file()], policy)
+    _load_registries([p for p in conf_paths if path_is_file(p)], policy)
 
     reg_d = Path(cfg.registries_d)
     if reg_d.is_dir():

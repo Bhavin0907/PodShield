@@ -213,7 +213,7 @@ step_integration() {
         systemctl stop podshield-watch.service && WATCH_STOPPED=1
     fi
     (cd "$SRC/backend" && env PYTHONDONTWRITEBYTECODE=1 timeout 5400 "$VENV/bin/python" -m pytest \
-        tests/integration -m integration -rs -p no:cacheprovider) 2>&1 | tee "$TMPD/integ.out"
+        tests/integration -m integration -rfEs -p no:cacheprovider) 2>&1 | tee "$TMPD/integ.out"
     rc=${PIPESTATUS[0]}
     if (( WATCH_STOPPED )); then
         systemctl start podshield-watch.service && WATCH_STOPPED=0
@@ -387,34 +387,68 @@ step_avc() {
 
 # ----------------------------------------------------------------------------- push log
 PUSH_STATUS=""
+
+# git as the real user that can never stop to ask for anything: no terminal prompt, no GUI
+# askpass, ssh in batch mode, and a hard timeout.
+git_np() {
+    as_user env GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= \
+        GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=15" \
+        timeout 120 git -C "$SRC" "$@"
+}
+
+# True when a push to $1 can authenticate without a prompt. Never prints a credential.
+has_push_credentials() {
+    local url="$1"
+    case "$url" in
+        https://*:*@*) return 0 ;;  # token embedded in the remote URL
+        http://*|https://*)
+            # Asks the configured credential helper(s) only; fails instead of prompting.
+            printf 'url=%s\n\n' "$url" | git_np credential fill >/dev/null 2>&1 ;;
+        *)  # ssh remote: authenticating needs a key that works in batch mode
+            git_np ls-remote --heads origin </dev/null >/dev/null 2>&1 ;;
+    esac
+}
+
+# Commit the (already sanitized) log to branch selftest-logs and push it. Uses a temporary
+# index + commit-tree: no worktree, no checkout, and local branches are never touched.
 push_log() {
-    local repo wt name branch=selftest-logs ident=()
-    repo="$(as_user git -C "$SRC" rev-parse --show-toplevel 2>/dev/null)" || { PUSH_STATUS="not a git checkout"; return 1; }
-    wt="$(as_user mktemp -d /tmp/podshield-logs.XXXXXX)"
-    name="$(basename "$LOG")"
-    as_user git -C "$repo" config user.email >/dev/null 2>&1 \
-        || ident=(-c user.name="PodShield selftest" -c user.email="selftest@podshield.invalid")
-    {
-        if as_user git -C "$repo" fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>/dev/null; then
-            as_user git -C "$repo" worktree add --quiet -B "$branch" "$wt" "origin/$branch"
-        else
-            as_user git -C "$repo" worktree add --quiet --detach "$wt" HEAD \
-                && as_user git -C "$wt" checkout --quiet --orphan "$branch" \
-                && as_user git -C "$wt" rm -rfq .
-        fi
-    } >>"$LOG" 2>&1 || { PUSH_STATUS="git worktree failed (see log)"; return 1; }
-    as_user mkdir -p "$wt/logs"
-    as_user cp "$LOG" "$wt/logs/$name"
-    as_user git -C "$wt" add "logs/$name" >>"$LOG" 2>&1
-    as_user git "${ident[@]}" -C "$wt" commit --quiet -m "selftest: $name ($SCORE_LINE)" >>"$LOG" 2>&1 \
-        || { PUSH_STATUS="git commit failed"; as_user git -C "$repo" worktree remove --force "$wt"; return 1; }
-    printf '\n  pushing the log to origin/%s (git may ask for your GitHub credentials)...\n' "$branch"
-    if as_user git -C "$wt" push --quiet origin "$branch"; then
-        PUSH_STATUS="pushed to branch $branch: logs/$name"
-    else
-        PUSH_STATUS="git push failed (log kept locally; commit is on local branch $branch)"
+    local branch=selftest-logs name url parent="" blob tree commit tmp ident=()
+    as_user git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1 \
+        || { PUSH_STATUS="skipped: $SRC is not a git checkout"; return 0; }
+    url="$(as_user git -C "$SRC" remote get-url origin 2>/dev/null)" \
+        || { PUSH_STATUS="skipped: no 'origin' remote"; return 0; }
+    if ! has_push_credentials "$url"; then
+        PUSH_STATUS="skipped: no saved GitHub credentials (README: Run the self-test)"
+        return 0
     fi
-    as_user git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1 || true
+    name="$(basename "$LOG")"
+    as_user git -C "$SRC" config user.email >/dev/null 2>&1 \
+        || ident=(-c user.name="PodShield selftest" -c user.email="selftest@podshield.invalid")
+    tmp="$(as_user mktemp -d /tmp/podshield-logpush.XXXXXX)"
+    if git_np fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch" </dev/null >/dev/null 2>&1; then
+        parent="$(as_user git -C "$SRC" rev-parse --verify --quiet "refs/remotes/origin/$branch")" || parent=""
+    fi
+    printf '\n  pushing the log to origin/%s ...\n' "$branch"
+    if blob="$(as_user git -C "$SRC" hash-object -w --stdin <"$LOG")" \
+        && if [[ -n "$parent" ]]; then
+               as_user env GIT_INDEX_FILE="$tmp/index" git -C "$SRC" read-tree "$parent"
+           else
+               as_user env GIT_INDEX_FILE="$tmp/index" git -C "$SRC" read-tree --empty
+           fi \
+        && as_user env GIT_INDEX_FILE="$tmp/index" git -C "$SRC" update-index --add \
+               --cacheinfo "100644,$blob,logs/$name" \
+        && tree="$(as_user env GIT_INDEX_FILE="$tmp/index" git -C "$SRC" write-tree)" \
+        && commit="$(as_user git "${ident[@]}" -C "$SRC" commit-tree "$tree" ${parent:+-p "$parent"} \
+               -m "selftest: $name ($SCORE_LINE)")"; then
+        if git_np push --quiet origin "$commit:refs/heads/$branch" </dev/null 2>"$tmp/push.err"; then
+            PUSH_STATUS="pushed to branch $branch: logs/$name"
+        else
+            PUSH_STATUS="git push failed (log kept locally): $(sanitize_stream <"$tmp/push.err" | tail -n 1 | cut -c1-80)"
+        fi
+    else
+        PUSH_STATUS="could not create the log commit (log kept locally)"
+    fi
+    rm -rf "$tmp"
 }
 
 # ---------------------------------------------------------------------------------- main
@@ -460,6 +494,18 @@ summary() {
     done
     printf '%s\n' "$rule"
     printf ' SCORE %d/%d steps passed (%d%%)   %d failed   %d skipped\n' "$pass_n" "$ran" "$pct" "$fail_n" "$skip_n"
+    failed_tests
+}
+
+# The first failing pytest tests (unit + integration), so they are visible without the log.
+failed_tests() {
+    local lines n
+    lines="$(cat "$TMPD/unit.out" "$TMPD/integ.out" 2>/dev/null | grep -E '^(FAILED|ERROR) ' || true)"
+    [[ -n "$lines" ]] || return 0
+    n="$(wc -l <<<"$lines")"
+    printf ' Failed tests (%d):\n' "$n"
+    head -n 10 <<<"$lines" | sed -E 's/^(FAILED|ERROR) tests\//  /' | cut -c1-110
+    (( n <= 10 )) || printf '  ... %d more in the log\n' $((n - 10))
 }
 
 {

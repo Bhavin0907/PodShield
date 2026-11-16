@@ -6,9 +6,8 @@ import os
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
-from podshield.config import Settings
+from podshield.config import Settings, path_is_file
 from podshield.scanners.base import ScannerUnavailable
 from podshield.scanners.oscap import OscapScanner
 from podshield.scanners.registry import RegistryAuditor
@@ -32,7 +31,7 @@ def _filesystem_check(settings: Settings) -> None:
 
 
 def _trust_check(settings: Settings) -> None:
-    if not Path(settings.trust.policy_path).is_file():
+    if not path_is_file(settings.trust.policy_path):
         raise ScannerUnavailable(f"{settings.trust.policy_path} not found")
 
 
