@@ -9,17 +9,12 @@ PodShield: Container Image Security & Hygiene Auditor for Podman on RHEL 9 (cour
 
 ## Current status
 - App phases 1 to 6 from PROMPT.md are done.
-- RHEL integration (DEPLOY_PROMPT.MD) is implemented. First workstation run (db0eb3b, 2026-11-16):
-  6/9 PASS (install, verify, API smoke, reboot safety, SELinux AVC all good). Fixed since:
-  unit tests (Path.is_file raises EACCES on py3.11 -> config.path_is_file), watcher never saw
-  events (podman-py filter {"type": [..]} encoded as "['image']" -> "type=image" strings),
-  --push-log (plumbing commit, no worktree; skipped when no saved credentials, never prompts).
-  Second run (35b176e): 8/9 PASS, demo auto-scanned by the watcher. 9 integration failures:
-  identical golden-clone fixtures shared one image ID via build cache (PS-002/005/014 and the
-  watcher build test) -> unique LABEL / --no-cache (confirmed fixed in run 3). Registry audit
-  flagged PS-011 on every image: `skopeo inspect --config` converts to OCI and drops
-  Healthcheck -> now `--config --raw` (fallback without --raw). Watcher build test asserted
-  grade != A, but PS-001 alone scores 90 = A -> asserts score < 100.
+- RHEL integration (DEPLOY_PROMPT.MD) is done and confirmed on the workstation (af8a040,
+  2026-11-16): selftest 8/8 PASS with --skip-demo (unit 1020, integration 49 passed/4 skipped,
+  SELinux Enforcing, 0 AVC denials); the demo step passed on its own in the run before (35b176e).
+  Bugs found on RHEL and fixed: Path.is_file EACCES on py3.11 (config.path_is_file); podman-py
+  events filter encoding (watcher got no events); `skopeo inspect --config` drops Healthcheck
+  (now --raw); build cache merging identical test fixtures. Trivy is not installed (optional).
   - deploy/install.sh: idempotent installer. Builds frontend/dist (gitignored) with Node 20,
     falling back to nodejs:22 if 20 < 20.19. Downloads OVAL (or --oval-file), restorecon, units,
     SELinux checks (port label only if confined; NoNewPrivileges off via drop-in only if
