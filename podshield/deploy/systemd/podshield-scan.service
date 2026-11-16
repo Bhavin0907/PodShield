@@ -12,6 +12,13 @@ EnvironmentFile=-/etc/podshield/podshield.env
 ExecStart=/opt/podshield/venv/bin/podshield scan --all
 User=root
 UMask=0077
+# Light hardening. Root is still required (rootful Podman socket, `podman image mount`,
+# oscap-podman), so this only hides /home and /root (empty tmpfs), gives a private /tmp, and
+# forbids gaining privileges through setuid binaries. If the SELinux policy cannot handle
+# NoNewPrivileges for podman, install.sh adds a drop-in (podshield-*.service.d/) that turns it off.
+PrivateTmp=true
+ProtectHome=tmpfs
+NoNewPrivileges=true
 Nice=10
 IOSchedulingClass=idle
 # Many images with oscap/trivy can take a while.

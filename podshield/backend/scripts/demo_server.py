@@ -19,11 +19,11 @@ import uvicorn
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from podshield.config import Settings  # noqa: E402
-from podshield.main import create_app  # noqa: E402
-from podshield.podman_client import parse_inspect  # noqa: E402
-from podshield.schemas import ImageInfo, Severity, Vulnerability  # noqa: E402
-from tests.conftest import FakeSource, hermetic_trust, load_json  # noqa: E402
+from podshield.config import Settings
+from podshield.main import create_app
+from podshield.podman_client import parse_inspect
+from podshield.schemas import ImageInfo, Severity, Vulnerability
+from tests.conftest import FakeSource, hermetic_trust, load_json
 
 
 class DemoSource(FakeSource):

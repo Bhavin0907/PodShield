@@ -23,6 +23,13 @@ RestartSec=3
 # Root is needed for the rootful Podman socket and for `podman image mount`.
 User=root
 UMask=0077
+# Light hardening. Root is still required (rootful Podman socket, `podman image mount`,
+# oscap-podman), so this only hides /home and /root (empty tmpfs), gives a private /tmp, and
+# forbids gaining privileges through setuid binaries. If the SELinux policy cannot handle
+# NoNewPrivileges for podman, install.sh adds a drop-in (podshield-*.service.d/) that turns it off.
+PrivateTmp=true
+ProtectHome=tmpfs
+NoNewPrivileges=true
 # Stopping while a scan runs: the scan is marked failed on the next start.
 TimeoutStopSec=30
 # Logs go to journald: journalctl -u podshield-api

@@ -53,8 +53,9 @@ C ≥ 70, D ≥ 60, otherwise F. All weights are configurable.
 * RHEL 9 (Rocky/Alma 9 work too), Podman 4.x or later, `systemd`
 * Python 3.11 (`dnf install python3.11`)
 * Optional: `openscap-utils` (provides `oscap-podman`), `skopeo`, `trivy`
-* To build the dashboard: Node.js 18+. Not needed on the server if you copy a prebuilt
-  `frontend/dist`.
+* To build the dashboard: Node.js 20.19+ (Vite 7). `install.sh` installs it with
+  `dnf module install nodejs:20` (falls back to `nodejs:22`). Not needed if `frontend/dist`
+  already exists.
 
 ## Install
 
@@ -82,7 +83,7 @@ The installer is idempotent, so run it again to upgrade. It:
 It never changes the SELinux mode or booleans. It opens a firewall port only when `--bind` is
 not a loopback address. Flags: `--port N` (default 8080), `--bind ADDR` (default `127.0.0.1`),
 `--oval-file PATH`, `--refresh-oval`, `--skip-oval`, `--skip-packages`, `--skip-frontend`,
-`--skip-services`, `--no-timer`, `--no-watch`, `--force` (other OS than RHEL 9). The port and
+`--skip-services`, `--no-timer`, `--no-watch`, `--skip-verify`, `--force` (other OS than RHEL 9). The port and
 address are stored in `/etc/podshield/podshield.env`, which later runs keep unless you pass the
 flags again.
 
@@ -96,9 +97,91 @@ systemctl list-timers podshield-scan.timer      # next nightly scan
 
 and open <http://127.0.0.1:8080> on the host (see "Exposing the dashboard" for remote access).
 
+## RHEL Integration
+
+PodShield runs as a native RHEL 9 service: no containers of its own, SELinux stays
+**Enforcing**, and only RHEL tools are used (`dnf`, `systemd`, `journald`, `firewalld`,
+`semanage`, `restorecon`).
+
+| Path | Contents |
+|------|----------|
+| `/opt/podshield/` | the app: `venv/` (backend + CLI) and `frontend/dist/` (dashboard) |
+| `/etc/podshield/config.toml` | configuration, never overwritten by the installer |
+| `/etc/podshield/podshield.env` | listen address and port (`--bind`, `--port`) |
+| `/var/lib/podshield/` | SQLite database, reports, `oval/rhel-9.oval.xml` |
+| `/usr/local/bin/podshield` | symlink to the CLI |
+| `/etc/systemd/system/podshield-*` | the four units below |
+
+| Script | What it does |
+|--------|--------------|
+| `deploy/install.sh` | idempotent installer (details above). Ends by running `verify.sh` |
+| `deploy/verify.sh` | read-only PASS/FAIL checks; exits 1 on any failure |
+| `deploy/uninstall.sh` | removes units, app, firewall port and port label; keeps config and data unless `--purge` |
+| `deploy/selftest.sh` | the whole chain in one command, see "Run the self-test" |
+| `demo/run-demo.sh` | builds the bad and good demo images, waits for the watcher, prints both grades |
+
+**systemd.** `podshield-api` (uvicorn) and `podshield-watch` are long-running
+(`Restart=on-failure`). `podshield-scan.service` is a oneshot started daily by
+`podshield-scan.timer` (`Persistent=true`, so a run missed while the VM was off happens after
+boot). All three services `Requires=`/`After=podman.socket`, log to journald, and run as root,
+because the rootful Podman socket, `podman image mount` and `oscap-podman` need it. The light
+hardening is `PrivateTmp=true`, `ProtectHome=tmpfs` and `NoNewPrivileges=true`.
+
+**SELinux.** The services run in the `unconfined_service_t` domain, which may bind any port, so
+the installer adds a `semanage port` label (`http_port_t`) only if the service ever runs
+confined. `NoNewPrivileges=true` blocks SELinux domain transitions the policy does not allow, so
+the installer asks the loaded policy (`sesearch`, read-only) whether starting `podman`,
+`skopeo` or `oscap-podman` from the service domain needs one. If it does, a drop-in
+(`podshield-*.service.d/10-podshield-no-nnp.conf`) turns `NoNewPrivileges` off and the
+installer says so. `restorecon -Rv` runs on the three directories. `setenforce` and `chcon` are
+never used.
+
+**firewalld.** The default `--bind 127.0.0.1` needs no firewall change. With any other address
+the installer opens exactly `--port`/tcp, and `uninstall.sh` closes it again. The dashboard
+has no login, so put an authenticating proxy in front before you expose it.
+
+```bash
+sudo bash deploy/verify.sh                 # PASS/FAIL report; exit 1 if anything failed
+sudo bash deploy/uninstall.sh              # keep config + data
+sudo bash deploy/uninstall.sh --purge      # remove everything PodShield created
+```
+
+## Run the self-test
+
+One command on the RHEL 9 machine installs, verifies and exercises everything:
+
+```bash
+cd ~/PodShield && git pull && sudo bash podshield/deploy/selftest.sh --push-log
+```
+
+It never stops at the first failure. The steps are preflight (EL9, SELinux, disk, network),
+`install.sh`, `verify.sh`, backend unit tests, root integration tests, the demo (watcher
+auto-scan), an API smoke test against every endpoint, reboot safety (units enabled, restart
+OK) and an SELinux AVC check. At the end it prints a one-screen summary with one
+`[PASS]/[FAIL]/[SKIP]` line per step and a score:
+
+```
+=============================================================================
+ PodShield self-test   2026-11-16 18:40   host workstation
+ git 1a2b3c4   SELinux Enforcing   took 31m05s
+-----------------------------------------------------------------------------
+ [PASS] 1 Preflight             EL 9.5, Enforcing, 21304MB free, network ok
+ [PASS] 2 Install (install.sh)  installed, 1 warning(s): trivy is not installed
+ ...
+ SCORE 9/9 steps passed (100%)   0 failed   0 skipped
+```
+
+The full log goes to `~/podshield-selftest-<timestamp>.log`. With `--push-log` the log, with
+anything that looks like a credential masked, is committed to the `selftest-logs` branch and
+pushed (git may ask for your GitHub credentials or token), so it can be read elsewhere with
+`git fetch origin selftest-logs && git show origin/selftest-logs:logs/<file>`. Other options:
+`--skip-install`, `--skip-integration` (the slowest step), `--skip-demo`, and `--oval-file`,
+`--port` and `--bind`, which are passed on to `install.sh`.
+
 ### OVAL feed for CVE scanning
 
-The installer fetches the feed once. PodShield itself never downloads anything, so refresh it\nwith `install.sh --refresh-oval` or by hand (or from cron):
+The installer fetches the feed once. PodShield itself never downloads anything, so refresh it
+with `install.sh --refresh-oval` or by hand (or from cron):
 
 ```bash
 sudo curl -fL https://security.access.redhat.com/data/oval/v2/RHEL9/rhel-9.oval.xml.bz2 \
@@ -134,12 +217,10 @@ Logs are structured JSON on stdout, collected by journald:
 journalctl -u podshield-api -u podshield-watch -u podshield-scan -f
 ```
 
-Change the bind address or port with a drop-in (`systemctl edit podshield-api`):
-
-```ini
-[Service]
-Environment=PODSHIELD_PORT=9000
-```
+Change the bind address or port by re-running the installer (`sudo ./deploy/install.sh --port
+9000`), or edit `/etc/podshield/podshield.env` and `systemctl restart podshield-api`. A
+`systemctl edit` drop-in with `Environment=` does not work for these two: values from the
+`EnvironmentFile` win.
 
 The API runs one worker on purpose: scan progress and the scan queue live in that process.
 Scans started by the CLI, the timer or the watcher write to the same database and show up in

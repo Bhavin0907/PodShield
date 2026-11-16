@@ -20,6 +20,7 @@
 #   --skip-services    install files but do not enable or start any systemd unit
 #   --no-timer         do not enable the daily scan timer
 #   --no-watch         do not enable the Podman events watcher
+#   --skip-verify      do not run deploy/verify.sh at the end
 #   --force            continue on an OS other than RHEL 9
 #   -h, --help         show this help
 
@@ -49,6 +50,9 @@ SKIP_SERVICES=0
 ENABLE_TIMER=1
 ENABLE_WATCH=1
 FORCE=0
+SKIP_VERIFY=0
+VERIFY_FAILED=0
+DROPIN_NAME=10-podshield-no-nnp.conf
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WARNINGS=()
@@ -94,6 +98,7 @@ while (( $# )); do
         --skip-services)  SKIP_SERVICES=1 ;;
         --no-timer)       ENABLE_TIMER=0 ;;
         --no-watch)       ENABLE_WATCH=0 ;;
+        --skip-verify)    SKIP_VERIFY=1 ;;
         --force)          FORCE=1 ;;
         -h|--help)        usage; exit 0 ;;
         *)                die "unknown option: $1 (try --help)" ;;
@@ -156,8 +161,9 @@ install_packages() {
         return
     fi
     command -v dnf >/dev/null 2>&1 || { (( DRY_RUN )) || die "dnf not found"; }
+    # policycoreutils-python-utils: semanage. setools-console: sesearch (policy queries below).
     run dnf install -y podman skopeo openscap-utils scap-security-guide \
-        python3.11 python3.11-pip bzip2 curl
+        python3.11 python3.11-pip bzip2 curl policycoreutils-python-utils setools-console
     ok "packages installed"
     if (( ! DRY_RUN )) && ! command -v oscap-podman >/dev/null 2>&1; then
         warn "oscap-podman is missing; CVE scanning with OpenSCAP will be skipped (dnf install openscap-utils)"
@@ -455,6 +461,125 @@ enable_services() {
     fi
 }
 
+# ------------------------------------------------------------------------- SELinux policy
+
+# The SELinux domain the API service runs in (normally unconfined_service_t).
+service_domain() {
+    local pid label=""
+    pid="$(systemctl show -p MainPID --value podshield-api.service 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+        label="$(ps -o label= -p "$pid" 2>/dev/null || true)"
+        label="${label// /}"
+    fi
+    if [[ "$label" == *:*:*:* ]]; then
+        printf '%s\n' "$label" | cut -d: -f3
+    else
+        printf 'unconfined_service_t\n'
+    fi
+}
+
+# Label the dashboard port only when it is needed: an unconfined service domain may bind any
+# port, so nothing changes then. A confined domain gets http_port_t unless the port already
+# has a web port type.
+label_port() {
+    local domain="$1"
+    if [[ "$domain" == unconfined_service_t || "$domain" == unconfined_t ]]; then
+        ok "port $PORT/tcp: no SELinux port label needed (service runs as $domain)"
+        return
+    fi
+    if ! command -v semanage >/dev/null 2>&1; then
+        warn "semanage not found (dnf install policycoreutils-python-utils); cannot check the label of port $PORT/tcp"
+        return
+    fi
+    if semanage port -l 2>/dev/null | awk -v p="$PORT" '
+            $2 == "tcp" && ($1 == "http_port_t" || $1 == "http_cache_port_t") {
+                for (i = 3; i <= NF; i++) { v = $i; gsub(",", "", v); if (v == p) found = 1 } }
+            END { exit !found }'; then
+        ok "port $PORT/tcp already has a web port label"
+        return
+    fi
+    if semanage port -a -t http_port_t -p tcp "$PORT" 2>/dev/null \
+            || semanage port -m -t http_port_t -p tcp "$PORT"; then
+        # uninstall.sh removes the label again using this marker.
+        printf '%s\n' "$PORT" > "$STATE_DIR/.selinux-port-label"
+        ok "labelled port $PORT/tcp as http_port_t (service runs as $domain)"
+        systemctl try-restart podshield-api.service
+    else
+        warn "could not label port $PORT/tcp; if the API cannot bind, see journalctl -u podshield-api"
+    fi
+}
+
+# NoNewPrivileges=true blocks SELinux domain transitions unless the policy grants
+# nnp_transition for them. Ask the loaded policy (sesearch, read-only) whether running the
+# scanner tools from the service domain needs such a transition. If it would be denied, turn
+# NoNewPrivileges off with a drop-in instead of letting scans fail with AVC denials.
+nnp_is_safe() {
+    local domain="$1" tool path ftype target
+    command -v sesearch >/dev/null 2>&1 || { printf 'sesearch not found (dnf install setools-console)\n'; return 1; }
+    for tool in podman skopeo oscap-podman oscap; do
+        path="$(command -v "$tool" 2>/dev/null)" || continue
+        ftype="$(stat -L -c %C "$path" 2>/dev/null | cut -d: -f3)" || continue
+        [[ -n "$ftype" ]] || continue
+        while read -r target; do
+            [[ -n "$target" && "$target" != "$domain" ]] || continue
+            if [[ -z "$(sesearch -A -s "$domain" -t "$target" -c process2 -p nnp_transition 2>/dev/null)" ]]; then
+                printf '%s (%s) would switch %s -> %s without nnp_transition\n' "$tool" "$ftype" "$domain" "$target"
+                return 1
+            fi
+        done < <(sesearch -T -s "$domain" -t "$ftype" -c process 2>/dev/null \
+                    | awk '/^type_transition/ { gsub(";", "", $NF); print $NF }' | sort -u)
+    done
+    return 0
+}
+
+configure_nnp() {
+    local domain="$1" reason unit dir changed=0
+    if reason="$(nnp_is_safe "$domain")"; then
+        for unit in podshield-api podshield-watch podshield-scan; do
+            dir="$UNIT_DIR/$unit.service.d"
+            if [[ -e "$dir/$DROPIN_NAME" ]]; then
+                rm -f "$dir/$DROPIN_NAME"
+                rmdir --ignore-fail-on-non-empty "$dir"
+                changed=1
+            fi
+        done
+        ok "NoNewPrivileges=true is compatible with the SELinux policy"
+    else
+        for unit in podshield-api podshield-watch podshield-scan; do
+            dir="$UNIT_DIR/$unit.service.d"
+            if [[ ! -e "$dir/$DROPIN_NAME" ]]; then
+                install -d -m 0755 "$dir"
+                printf '# Written by deploy/install.sh: %s\n[Service]\nNoNewPrivileges=false\n' \
+                    "$reason" > "$dir/$DROPIN_NAME"
+                chmod 0644 "$dir/$DROPIN_NAME"
+                restorecon -R "$dir" 2>/dev/null || true
+                changed=1
+            fi
+        done
+        ok "NoNewPrivileges turned off by drop-in ($reason)"
+    fi
+    if (( changed )); then
+        systemctl daemon-reload
+        (( SKIP_SERVICES )) || systemctl try-restart podshield-api.service podshield-watch.service
+    fi
+}
+
+configure_selinux() {
+    log "SELinux policy checks"
+    if (( DRY_RUN )); then
+        printf '[dry-run] check the SELinux port label for %s/tcp and NoNewPrivileges compatibility\n' "$PORT"
+        return
+    fi
+    if ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce)" == Disabled ]]; then
+        warn "SELinux is disabled; skipping policy checks"
+        return
+    fi
+    local domain
+    domain="$(service_domain)"
+    configure_nnp "$domain"
+    label_port "$domain"
+}
+
 # ---------------------------------------------------------------------------------- firewall
 
 open_firewall() {
@@ -481,11 +606,19 @@ open_firewall() {
 
 verify() {
     local script="$SRC_DIR/deploy/verify.sh"
-    if [[ -f "$script" ]]; then
-        log "verifying the installation"
-        run env PODSHIELD_VERIFY_HOST="$BIND" PODSHIELD_VERIFY_PORT="$PORT" bash "$script"
-    else
-        printf '\n(deploy/verify.sh is not part of this phase yet; skipping the verification step)\n'
+    if (( SKIP_VERIFY )); then
+        printf '\n(verification skipped: --skip-verify)\n'
+        return
+    fi
+    log "verifying the installation"
+    if (( DRY_RUN )); then
+        printf '[dry-run] bash %s --port %s\n' "$script" "$PORT"
+        return
+    fi
+    # A failed check must not hide the summary; main() exits non-zero afterwards.
+    if ! bash "$script" --port "$PORT"; then
+        VERIFY_FAILED=1
+        warn "deploy/verify.sh reported failures (see above)"
     fi
 }
 
@@ -503,7 +636,8 @@ PodShield is installed.
   Logs        journalctl -u podshield-api -u podshield-watch -u podshield-scan
 EOF
     if is_loopback "$BIND"; then
-        printf '\nBound to localhost. To reach it from your laptop:  ssh -L %s:127.0.0.1:%s user@this-host\n' \
+        printf '\nBound to localhost: open http://127.0.0.1:%s in a browser on this machine\n' "$PORT"
+        printf '(from another machine: ssh -L %s:127.0.0.1:%s user@this-host, or re-run with --bind 0.0.0.0)\n' \
             "$PORT" "$PORT"
     fi
     if (( ${#WARNINGS[@]} )); then
@@ -523,6 +657,7 @@ main() {
     apply_selinux_labels
     install_units
     enable_services
+    configure_selinux
     open_firewall
     verify
     if (( DRY_RUN )); then
@@ -530,6 +665,7 @@ main() {
     else
         print_summary
     fi
+    (( VERIFY_FAILED == 0 )) || exit 1
 }
 
 main

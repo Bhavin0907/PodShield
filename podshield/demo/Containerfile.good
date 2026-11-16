@@ -27,8 +27,10 @@ LABEL org.opencontainers.image.authors="platform-team@example.com" \
       org.opencontainers.image.source="https://git.example.com/platform/demo-good" \
       org.opencontainers.image.base.name="registry.access.redhat.com/ubi9/ubi-minimal:9.4"
 
-# Install, then clean in the same RUN so the cache never lands in a layer.
-RUN microdnf install -y --nodocs --setopt=install_weak_deps=0 python3 \
+# Update the base packages (fixed CVEs, so the OVAL scan stays clean), install, then clean in
+# the same RUN so the cache never lands in a layer.
+RUN microdnf update -y --nodocs \
+    && microdnf install -y --nodocs --setopt=install_weak_deps=0 python3 \
     && microdnf clean all \
     && rm -rf /var/cache/dnf /var/cache/yum
 

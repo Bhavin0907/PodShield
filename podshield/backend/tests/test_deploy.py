@@ -294,7 +294,7 @@ def test_install_builds_the_dashboard_with_node_20_when_dist_is_missing(tmp_path
     out = proc.stdout
     assert "dnf module install -y nodejs:20" in out
     assert out.index("nodejs:20") < out.index("npm ci && npm run build")
-    assert f"cp -a --no-preserve=ownership {root}/frontend/dist /opt/podshield/frontend/dist" in out
+    assert f"cp -R {root}/frontend/dist /opt/podshield/frontend/dist" in out
     assert "chown -R root:root /opt/podshield/frontend" in out
 
 
@@ -315,7 +315,7 @@ def test_install_skips_the_build_when_dist_exists(tmp_path: Path) -> None:
     proc = run_dry(root, env_with_node(tmp_path, "v16.0.0"))
     assert proc.returncode == 0, proc.stderr
     assert "npm ci" not in proc.stdout and "nodejs:20" not in proc.stdout
-    assert "cp -a --no-preserve=ownership" in proc.stdout
+    assert "cp -R " in proc.stdout and "/frontend/dist" in proc.stdout
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
@@ -373,3 +373,125 @@ def test_demo_containerfiles_show_the_expected_contrast() -> None:
     assert "AKIAIOSFODNN7EXAMPLE" in bad  # the documented fake AWS key
     assert "USER" in instructions(good) and "HEALTHCHECK" in instructions(good)
     assert "ubi9" in good and "PASSWORD" not in good and "SECRET" not in good
+
+
+# ------------------------------------------------------------------- other deploy scripts
+
+SCRIPTS = [
+    DEPLOY / "install.sh",
+    DEPLOY / "verify.sh",
+    DEPLOY / "uninstall.sh",
+    DEPLOY / "selftest.sh",
+    ROOT / "demo" / "run-demo.sh",
+]
+FORBIDDEN_SELINUX = ("setenforce", "SELINUX=", "semanage permissive", "setsebool", "chcon")
+
+
+@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
+def test_scripts_are_lf_bash_with_strict_mode(script: Path) -> None:
+    raw = script.read_bytes()
+    assert b"\r\n" not in raw
+    assert raw.startswith(b"#!/usr/bin/env bash\n")
+    assert "pipefail" in raw.decode() and "set -" in raw.decode()
+
+
+@pytest.mark.parametrize("script", [*SCRIPTS, DEPLOY / "lib.sh"], ids=lambda p: p.name)
+def test_scripts_never_weaken_selinux(script: Path) -> None:
+    code = "\n".join(
+        line
+        for line in script.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    for forbidden in FORBIDDEN_SELINUX:
+        assert forbidden not in code, f"{script.name}: {forbidden}"
+
+
+@pytest.mark.parametrize("script", [*SCRIPTS, DEPLOY / "lib.sh"], ids=lambda p: p.name)
+def test_scripts_are_executable_in_git(script: Path) -> None:
+    git = shutil.which("git")
+    if git is None:
+        pytest.skip("git not installed")
+    proc = subprocess.run(
+        [git, "ls-files", "-s", "--", str(script)],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        pytest.skip("not a git checkout or file not tracked yet")
+    assert proc.stdout.split()[0] == "100755", f"{script.name}: git update-index --chmod=+x"
+
+
+def test_verify_covers_the_required_checks() -> None:
+    text = (DEPLOY / "verify.sh").read_text(encoding="utf-8")
+    for needle in (
+        "getenforce",
+        "podman.socket",
+        "podshield-api.service",
+        "podshield-watch.service",
+        "podshield-scan.timer",
+        "NextElapseUSecRealtime",
+        "/api/health",
+        "oval_definitions",
+        "avc_denials_since",
+    ):
+        assert needle in text, needle
+    assert text.rstrip().endswith("(( FAIL_N == 0 ))")  # non-zero exit on any failure
+
+
+def test_uninstall_keeps_data_unless_purge() -> None:
+    text = (DEPLOY / "uninstall.sh").read_text(encoding="utf-8")
+    purge_block = text[text.index("if (( PURGE )); then") :]
+    assert 'rm -rf "$PS_CONF_DIR" "$PS_STATE_DIR"' in purge_block
+    assert text.count('rm -rf "$PS_CONF_DIR"') == 1  # only inside the --purge branch
+
+
+def test_units_have_light_hardening() -> None:
+    for name in SERVICES:
+        unit = read_unit(name)
+        assert unit.get("Service", "PrivateTmp") == "true"
+        assert unit.get("Service", "ProtectHome") in {"true", "read-only", "tmpfs"}
+        assert unit.get("Service", "NoNewPrivileges") == "true"
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
+def test_log_sanitizer_masks_credentials() -> None:
+    sample = (
+        "ENV DB_PASSWORD=hunter2-super-secret\n"
+        "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG\n"
+        "id AKIAIOSFODNN7EXAMPLE\n"
+        "postgres://admin:hunter2@db:5432/app\n"
+        "Authorization: Bearer abc.def.ghi\n"
+        "523 passed in 40.1s\n"
+    )
+    proc = subprocess.run(
+        ["bash", "-c", f'. "{DEPLOY / "lib.sh"}"; sanitize_stream'],
+        input=sample,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    out = proc.stdout
+    for secret in (
+        "hunter2-super-secret",
+        "wJalrXUtnFEMI",
+        "IOSFODNN7EXAMPLE",
+        "abc.def.ghi",
+        "admin:hunter2@",
+    ):
+        assert secret not in out, secret
+    assert "DB_PASSWORD=hunt****" in out
+    assert "523 passed in 40.1s" in out
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="needs bash")
+@pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
+def test_scripts_parse_and_show_help(script: Path) -> None:
+    subprocess.run(["bash", "-n", str(script)], check=True)
+    proc = subprocess.run(
+        ["bash", str(script), "--help"], capture_output=True, text=True, timeout=30, check=False
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip()
