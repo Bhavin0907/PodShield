@@ -129,7 +129,8 @@ def test_building_an_image_triggers_a_scan(watcher: Watcher) -> None:
         str(support.IMAGES_DIR),
     )
     record = watcher.wait_for_scan_of(tag, since)
-    assert record.grade != "A"  # it runs as root (PS-001)
+    # Runs as root: PS-001 (high, -10) is its only finding, so 90, still grade A.
+    assert record.score is not None and record.score < 100, record
 
 
 @pytest.mark.requires_network

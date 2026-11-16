@@ -119,7 +119,8 @@ def test_skopeo_command_lines(skopeo: list[list[str]], settings: Settings) -> No
     RegistryAuditor(settings).fetch("quay.io/podman/stable:v5")
     summary, config = skopeo
     assert summary[:3] == ["skopeo", "inspect", "--no-tags"]
-    assert config[:3] == ["skopeo", "inspect", "--config"]
+    # --raw keeps the Docker config as-is (the OCI conversion drops Healthcheck -> PS-011)
+    assert config[:4] == ["skopeo", "inspect", "--config", "--raw"]
     for cmd in (summary, config):
         assert cmd[-1] == "docker://quay.io/podman/stable:v5"
         assert "--tls-verify=false" in cmd
@@ -162,3 +163,25 @@ def test_skopeo_failure_and_bad_json(monkeypatch: pytest.MonkeyPatch, settings: 
     )
     with pytest.raises(ScannerError, match="invalid JSON"):
         RegistryAuditor(settings).audit("nginx")
+
+
+def test_config_falls_back_to_converted_when_raw_has_no_config_blob(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings
+) -> None:
+    """Schema-1 images have no config blob, so `--config --raw` fails; retry without --raw."""
+    calls: list[list[str]] = []
+    monkeypatch.setattr(shutil, "which", lambda b: f"/usr/bin/{b}")
+
+    def run(cmd: list[str], **_kw: object) -> subprocess.CompletedProcess[str]:
+        calls.append(cmd)
+        if "--raw" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "no config blob")
+        doc = load_json("skopeo_config.json" if "--config" in cmd else "skopeo_summary.json")
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(doc), "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    image = RegistryAuditor(settings).fetch("quay.io/podman/stable:v5")
+    assert image.user == "" and [c[2:4] for c in calls[1:]] == [
+        ["--config", "--raw"],
+        ["--config", "docker://quay.io/podman/stable:v5"],
+    ]

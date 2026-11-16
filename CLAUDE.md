@@ -16,8 +16,10 @@ PodShield: Container Image Security & Hygiene Auditor for Podman on RHEL 9 (cour
   --push-log (plumbing commit, no worktree; skipped when no saved credentials, never prompts).
   Second run (35b176e): 8/9 PASS, demo auto-scanned by the watcher. 9 integration failures:
   identical golden-clone fixtures shared one image ID via build cache (PS-002/005/014 and the
-  watcher build test) -> unique LABEL / --no-cache; registry audit (5) assumed PS-011 from an
-  OCI push conversion -> push --format v2s2 --compression-format gzip (unconfirmed).
+  watcher build test) -> unique LABEL / --no-cache (confirmed fixed in run 3). Registry audit
+  flagged PS-011 on every image: `skopeo inspect --config` converts to OCI and drops
+  Healthcheck -> now `--config --raw` (fallback without --raw). Watcher build test asserted
+  grade != A, but PS-001 alone scores 90 = A -> asserts score < 100.
   - deploy/install.sh: idempotent installer. Builds frontend/dist (gitignored) with Node 20,
     falling back to nodejs:22 if 20 < 20.19. Downloads OVAL (or --oval-file), restorecon, units,
     SELinux checks (port label only if confined; NoNewPrivileges off via drop-in only if

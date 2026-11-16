@@ -122,7 +122,13 @@ class RegistryAuditor:
         ref = normalize_reference(reference)
         self.check()
         summary = self._skopeo("--no-tags", reference=ref)
-        config = self._skopeo("--config", reference=ref)
+        # --raw: plain --config converts to the OCI config, which has no Healthcheck field,
+        # so every Docker-format image would be flagged PS-011. Schema-1 images have no
+        # config blob; fall back to the converted config for those.
+        try:
+            config = self._skopeo("--config", "--raw", reference=ref)
+        except ScannerError:
+            config = self._skopeo("--config", reference=ref)
         return parse_skopeo(summary, config, ref)
 
     def audit(self, reference: str) -> RegistryAudit:
