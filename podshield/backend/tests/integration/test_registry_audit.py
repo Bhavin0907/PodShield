@@ -65,7 +65,11 @@ def push(local_registry: str, build: Callable[[ImageCase], str]) -> Callable[[Im
     def _push(case: ImageCase) -> str:
         target = f"{local_registry}/{case.name}:{case.tag}"
         support.podman("tag", build(case), target)
-        support.podman("push", "--tls-verify=false", target)
+        # Keep docker schema 2 (gzip): an OCI conversion (e.g. a zstd compression default)
+        # drops HEALTHCHECK, which would add PS-011 to every audit.
+        support.podman(
+            "push", "--tls-verify=false", "--format", "v2s2", "--compression-format", "gzip", target
+        )
         return target
 
     return _push

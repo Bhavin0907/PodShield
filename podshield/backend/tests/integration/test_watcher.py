@@ -117,6 +117,7 @@ def test_building_an_image_triggers_a_scan(watcher: Watcher) -> None:
     since = datetime.now(UTC)
     support.podman(
         "build",
+        "--no-cache",  # a real build with a new image ID, not a cache hit on pstest-root
         "--format",
         "docker",
         "-t",

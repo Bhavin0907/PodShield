@@ -12,3 +12,5 @@ RUN bash /tmp/harden.sh finish
 USER 1001
 HEALTHCHECK --interval=30s CMD ["/usr/bin/true"]
 CMD ["/usr/bin/sleep", "300"]
+# Distinct config, so the build cache cannot hand back the golden image (same ID = shared tags).
+LABEL pstest.case="old"

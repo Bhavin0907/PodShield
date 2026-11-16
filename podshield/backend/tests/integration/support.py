@@ -82,7 +82,11 @@ RULE_CASES: tuple[ImageCase, ...] = (
     ImageCase("PS-003", "pstest-env-secret"),
     ImageCase("PS-004", "pstest-layer-secret"),
     ImageCase(
-        "PS-005", "pstest-old", build_args=("--timestamp", OLD_TIMESTAMP), needs=("--timestamp",)
+        "PS-005",
+        "pstest-old",
+        # --no-cache: a fully cached build reuses the cached image and ignores --timestamp.
+        build_args=("--timestamp", OLD_TIMESTAMP, "--no-cache"),
+        needs=("--timestamp",),
     ),
     ImageCase("PS-006", "pstest-untrusted"),
     ImageCase("PS-007", "pstest-bloat"),
