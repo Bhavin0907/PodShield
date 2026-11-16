@@ -52,6 +52,9 @@ FORCE=0
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WARNINGS=()
+BUILD_TMP=""
+cleanup() { [[ -z "$BUILD_TMP" ]] || rm -rf "$BUILD_TMP"; }
+trap cleanup EXIT
 
 # ---------------------------------------------------------------------------------- output
 
@@ -176,11 +179,25 @@ install_backend() {
     if [[ ! -x "$PREFIX/venv/bin/python" ]]; then
         run "$PYTHON_BIN" -m venv "$PREFIX/venv"
     fi
+    # Build from a private copy: setuptools writes build/ and *.egg-info next to pyproject.toml,
+    # and doing that as root inside the user's checkout leaves root-owned files behind.
+    local build=/tmp/podshield-build.dry-run
+    if (( ! DRY_RUN )); then
+        build="$(mktemp -d /tmp/podshield-build.XXXXXX)"
+        BUILD_TMP="$build"
+    fi
+    run cp -R "$SRC_DIR/backend/pyproject.toml" "$SRC_DIR/backend/podshield" "$build/"
     run "$PREFIX/venv/bin/python" -m pip install --quiet --upgrade pip
-    run "$PREFIX/venv/bin/python" -m pip install --quiet --upgrade "$SRC_DIR/backend"
+    run "$PREFIX/venv/bin/python" -m pip install --quiet --upgrade "$build"
     # pip may keep an installed copy with the same version number; replace the code explicitly so
     # that re-running the installer always deploys the current checkout.
-    run "$PREFIX/venv/bin/python" -m pip install --quiet --no-deps --force-reinstall "$SRC_DIR/backend"
+    run "$PREFIX/venv/bin/python" -m pip install --quiet --no-deps --force-reinstall "$build"
+    if (( ! DRY_RUN )); then
+        rm -rf "$build"
+        BUILD_TMP=""
+        "$PREFIX/venv/bin/podshield" --help >/dev/null 2>&1 \
+            || die "the podshield CLI in $PREFIX/venv does not start; see the pip output above"
+    fi
     # A regular (non-editable) install: the checkout can be moved or deleted afterwards.
     run ln -sfn "$PREFIX/venv/bin/podshield" /usr/local/bin/podshield
     ok "backend installed; CLI is /usr/local/bin/podshield"
@@ -200,8 +217,9 @@ install_frontend() {
     fi
     run rm -rf "$PREFIX/frontend/dist"
     run install -d -m 0755 "$PREFIX/frontend"
-    # Copy without the builder's owner: the files are served by a root service.
-    run cp -a --no-preserve=ownership "$dist" "$PREFIX/frontend/dist"
+    # Plain recursive copy: do not carry over the builder's owner or the user_home_t SELinux
+    # label from the home directory (restorecon below sets the /opt label anyway).
+    run cp -R "$dist" "$PREFIX/frontend/dist"
     run chown -R root:root "$PREFIX/frontend"
     ok "dashboard installed in $PREFIX/frontend/dist"
 }
@@ -237,8 +255,19 @@ install_node() {
     if (( DRY_RUN )); then
         return 0
     fi
+    # A frozen lab repo can carry a nodejs:20 older than 20.19. RHEL 9.5+ also ships nodejs:22.
     if ! node_is_recent_enough; then
-        warn "Node.js $(node --version 2>/dev/null || echo missing) is older than 20.19, which Vite 7 needs; the build may fail (dnf update nodejs)"
+        printf 'Node.js %s is older than 20.19; trying the nodejs:22 stream\n' "$(node --version 2>/dev/null || echo '(missing)')"
+        if dnf module reset -y nodejs && dnf module install -y nodejs:22; then
+            :
+        else
+            warn "could not install the nodejs:22 module stream"
+        fi
+    fi
+    if node_is_recent_enough; then
+        ok "Node.js $(node --version) installed"
+    else
+        warn "Node.js $(node --version 2>/dev/null || echo missing) is older than 20.19, which Vite 7 needs; the build may fail"
     fi
 }
 
@@ -299,6 +328,25 @@ install_config() {
             "$BIND" "$PORT" >> "$ENV_FILE"
         chmod 0640 "$ENV_FILE"
         ok "wrote $ENV_FILE (listening on $BIND:$PORT)"
+    fi
+}
+
+# ---------------------------------------------------------------------------- podman socket
+
+enable_podman_socket() {
+    log "rootful Podman API socket"
+    run systemctl enable --now podman.socket
+    if (( DRY_RUN )); then
+        return
+    fi
+    systemctl is-active --quiet podman.socket || die "podman.socket did not start: journalctl -u podman.socket"
+    [[ -S /run/podman/podman.sock ]] || die "/run/podman/podman.sock is missing although podman.socket is active"
+    # A real API call: socket activation starts podman.service on demand.
+    if curl --silent --fail --max-time 20 --unix-socket /run/podman/podman.sock \
+            http://d/_ping >/dev/null 2>&1; then
+        ok "podman.socket is active and answers on /run/podman/podman.sock"
+    else
+        warn "podman.socket is active but /_ping did not answer; check journalctl -u podman.service"
     fi
 }
 
@@ -392,8 +440,6 @@ enable_services() {
         printf 'skipped (--skip-services)\n'
         return
     fi
-    run systemctl enable --now podman.socket
-    ok "podman.socket enabled"
     run systemctl enable --now podshield-api.service
     # Pick up a new version after an upgrade; no-op for units that are not running.
     run systemctl try-restart podshield-api.service
@@ -472,6 +518,7 @@ main() {
     install_backend
     install_frontend
     install_config
+    enable_podman_socket
     install_oval
     apply_selinux_labels
     install_units
