@@ -10,8 +10,8 @@ PodShield: Container Image Security & Hygiene Auditor for Podman on RHEL 9 (cour
 ## Current status
 - App phases 1 to 6 from PROMPT.md are done.
 - RHEL integration (DEPLOY_PROMPT.MD) is done and confirmed on the workstation (af8a040,
-  2026-11-16): selftest 8/8 PASS with --skip-demo (unit 1020, integration 49 passed/4 skipped,
-  SELinux Enforcing, 0 AVC denials); the demo step passed on its own in the run before (35b176e).
+  2026-11-16); full run at d37b51f: selftest 9/9 PASS (unit 1020, integration 49 passed/4
+  skipped, demo auto-scanned by the watcher bad=F/19 good=A/92, SELinux Enforcing, 0 AVCs).
   Bugs found on RHEL and fixed: Path.is_file EACCES on py3.11 (config.path_is_file); podman-py
   events filter encoding (watcher got no events); `skopeo inspect --config` drops Healthcheck
   (now --raw); build cache merging identical test fixtures. Trivy is not installed (optional).
